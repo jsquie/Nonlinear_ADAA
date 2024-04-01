@@ -2,6 +2,7 @@ use nih_plug::prelude::*;
 use std::sync::Arc;
 
 mod adaa;
+mod circular_buffer;
 // This is a shortened version of the gain example with most comments removed, check out
 // https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/gain/src/lib.rs to get
 // started

@@ -199,6 +199,3 @@ impl ADAASecond {
         res as f32
     }
 }
-
-#[cfg(test)]
-mod tests {}
