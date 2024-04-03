@@ -3,13 +3,13 @@ use ndarray::{s, Array1};
 use num_traits::Float;
 
 #[derive(Debug)]
-struct CircularBuffer<T>
+pub struct CircularBuffer<T>
 where
     T: Float + 'static,
 {
     data: Array1<T>,
     pos: usize,
-    size: i32,
+    size: usize,
 }
 
 impl<T> CircularBuffer<T>
@@ -20,8 +20,13 @@ where
         CircularBuffer {
             data: Array1::<T>::zeros(initial_size),
             pos: 0,
-            size: initial_size as i32,
+            size: initial_size,
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.data = Array1::<T>::zeros(self.size);
+        self.pos = 0;
     }
 
     fn push(&mut self, val: T) {
@@ -30,21 +35,21 @@ where
 
     fn decrement_pos(&mut self) {
         self.pos = if self.pos == 0 {
-            (self.size - 1) as usize
+            self.size - 1
         } else {
             self.pos - 1
         };
     }
 
     pub fn delay(&mut self, val: T) -> T {
-        let output = self.data[self.pos];
+        let res = self.data[self.pos];
         self.push(val);
         self.decrement_pos();
-        output
+        res
     }
 
     fn dot(&self, other: &Array1<T>) -> T {
-        nih_debug_assert_eq!(self.data.shape(), other.shape());
+        assert_eq!(self.data.shape(), other.shape());
         let p = self.pos;
         let o_pos = (self.size as usize) - p;
         self.data.slice(s![p..]).dot(&other.slice(s![..o_pos]))
@@ -52,7 +57,7 @@ where
     }
 
     pub fn convolve(&mut self, val: T, coeffs: &Array1<T>) -> T {
-        nih_debug_assert_eq!(self.data.shape(), coeffs.shape());
+        assert_eq!(self.data.shape(), coeffs.shape());
         let res: T;
         self.push(val);
         res = self.dot(&coeffs);
@@ -203,5 +208,151 @@ mod tests {
         let delay_seven = delay_buf.delay(sig[6]);
         assert_eq!(delay_seven, sig[1]);
         assert_eq!(delay_buf.data, array!(6., 5., 4., 3., 7.));
+    }
+
+    #[test]
+    fn delay_list() {
+        let sig = Array1::from_vec((1..10).map(|x| x as f32).collect());
+        let mut delay_buf = CircularBuffer::<f32>::new(5);
+
+        let result = sig
+            .into_iter()
+            .map(|x| delay_buf.delay(x))
+            .collect::<Vec<f32>>();
+
+        assert_eq!(
+            result,
+            vec![vec![0.; 5], (1..5).map(|x| x as f32).collect()]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<f32>>()
+        )
+    }
+
+    #[test]
+    fn test_convolve_filter_taps() {
+        let filter_taps = Array1::from_vec(vec![
+            -0.0064715474097890545,
+            0.006788724784527351,
+            -0.007134125572070907,
+            0.007511871271766723,
+            -0.007926929217098087,
+            0.00838534118242672,
+            -0.00889453036904902,
+            0.009463720022395613,
+            -0.010104514094437885,
+            0.010831718180021,
+            -0.011664525313602769,
+            0.012628270948224513,
+            -0.013757103575462731,
+            0.015098181413680897,
+            -0.01671851963595936,
+            0.01871667093508393,
+            -0.021243750540180146,
+            0.024543868940610197,
+            -0.0290386730354654,
+            0.035524608815134716,
+            -0.045708348639099484,
+            0.06402724397938601,
+            -0.10675158913607562,
+            0.32031404953367254,
+            0.32031404953367254,
+            -0.10675158913607562,
+            0.06402724397938601,
+            -0.045708348639099484,
+            0.035524608815134716,
+            -0.0290386730354654,
+            0.024543868940610197,
+            -0.021243750540180146,
+            0.01871667093508393,
+            -0.01671851963595936,
+            0.015098181413680897,
+            -0.013757103575462731,
+            0.012628270948224513,
+            -0.011664525313602769,
+            0.010831718180021,
+            -0.010104514094437885,
+            0.009463720022395613,
+            -0.00889453036904902,
+            0.00838534118242672,
+            -0.007926929217098087,
+            0.007511871271766723,
+            -0.007134125572070907,
+            0.006788724784527351,
+            -0.0064715474097890545,
+        ]);
+
+        let expected_result = vec![
+            0.0,
+            -0.0064715474097890545,
+            -0.006154370035050758,
+            -0.012971318232383369,
+            0.013609794481206961,
+            -0.014305563389777363,
+            0.015067096563530714,
+            -0.015904635655489836,
+            0.016830682831577737,
+            -0.01786066515679372,
+            0.019013850058332067,
+            -0.020314631236874423,
+            0.021794374861081975,
+            -0.02349413761982201,
+            0.02546878710742898,
+            -0.027793467534985756,
+            0.030574175904207905,
+            -0.03396596757789036,
+            0.0382063806655017,
+            -0.04368218677478544,
+            0.05107886956603451,
+            -0.06177515011522625,
+            0.07918437314659119,
+            -0.11582214709460205,
+            0.29889260319967936,
+            0.6406873811927908,
+            1.4948186585322873,
+            0.8114662143082524,
+            -0.23790862808855429,
+            0.13618964347509377,
+            -0.09511450132249442,
+            0.07304034931508355,
+            -0.05927203176535595,
+            0.04986077667655423,
+            -0.043016429386331934,
+            0.037811154947013974,
+            -0.03371629965597902,
+            0.030408608038341743,
+            -0.027679294143541935,
+            0.025387480397489004,
+            -0.02343465367520419,
+            0.02174984637358284,
+            -0.02028063260757145,
+            0.01898744051151552,
+            -0.01783983795939171,
+            0.01681403638485071,
+            -0.015891170679831722,
+            0.015056087455685704,
+            -0.014296474556947074,
+            0.007423079534003944,
+            -0.019414642229367163,
+        ];
+
+        let sig = vec![vec![0., 1., 2., 3.], vec![0.; expected_result.len() - 4]]
+            .into_iter()
+            .flatten();
+
+        let mut buff = CircularBuffer::<f64>::new(filter_taps.len());
+
+        let result: Vec<f32> = sig
+            .into_iter()
+            .map(|x| buff.convolve(x, &filter_taps) as f32)
+            .collect();
+
+        assert_eq!(
+            result,
+            expected_result
+                .into_iter()
+                .map(|x| x as f32)
+                .collect::<Vec<f32>>()
+        );
     }
 }
