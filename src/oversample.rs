@@ -72,7 +72,7 @@ const FOLD_SCALE_32: f32 = FOLD_SCALE_64 as f32;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
-struct OSFactorScale {
+pub struct OSFactorScale {
     factor: u32,
     scale: u32,
 }
@@ -113,7 +113,7 @@ pub enum OversampleFactor {
     SixteenTimes,
 }
 #[allow(dead_code)]
-enum SampleRole {
+pub enum SampleRole {
     UpSample,
     DownSample,
 }
@@ -256,7 +256,7 @@ where
 }
 
 #[allow(dead_code)]
-struct Oversample<T>
+pub struct Oversample<T>
 where
     T: Float + 'static,
 {
@@ -270,7 +270,7 @@ where
 
 #[allow(dead_code)]
 impl Oversample<f32> {
-    fn new(initial_factor: OversampleFactor, initial_buff_size: u32) -> Oversample<f32> {
+    pub fn new(initial_factor: OversampleFactor, initial_buff_size: u32) -> Oversample<f32> {
         let new_factor: OSFactorScale = match initial_factor {
             OversampleFactor::TwoTimes => OSFactorScale::TWO_TIMES,
             OversampleFactor::FourTimes => OSFactorScale::FOUR_TIMES,
@@ -304,12 +304,12 @@ impl Oversample<f32> {
         }
     }
 
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.up_stages.iter_mut().for_each(|stage| stage.reset());
         self.down_stages.iter_mut().for_each(|stage| stage.reset());
     }
 
-    fn process_up(&mut self, input: &Vec<f32>) -> Vec<f32> {
+    pub fn process_up(&mut self, input: &Vec<f32>) -> Vec<f32> {
         let stages = self.up_stages.iter_mut();
         let mut last_stage = input;
         for stage in stages {
@@ -319,7 +319,69 @@ impl Oversample<f32> {
         last_stage.to_owned()
     }
 
-    fn process_down(&mut self, input: &Vec<f32>) -> Vec<f32> {
+    pub fn process_down(&mut self, input: &Vec<f32>) -> Vec<f32> {
+        let stages = self.down_stages.iter_mut();
+        let mut last_stage = input;
+        for stage in stages {
+            stage.process_down(last_stage, &self.kernel);
+            last_stage = stage.get_processed_data();
+        }
+        last_stage.to_owned()
+    }
+}
+
+#[allow(dead_code)]
+impl Oversample<f64> {
+    pub fn new(initial_factor: OversampleFactor, initial_buff_size: u32) -> Oversample<f64> {
+        let new_factor: OSFactorScale = match initial_factor {
+            OversampleFactor::TwoTimes => OSFactorScale::TWO_TIMES,
+            OversampleFactor::FourTimes => OSFactorScale::FOUR_TIMES,
+            OversampleFactor::EightTimes => OSFactorScale::EIGHT_TIMES,
+            OversampleFactor::SixteenTimes => OSFactorScale::SIXTEEN_TIMES,
+        };
+
+        Oversample {
+            buff_size: initial_buff_size,
+            factor: initial_factor,
+            factor_scale: new_factor,
+            up_stages: (1..=new_factor.factor)
+                .into_iter()
+                .map(|factor| {
+                    OversampleStage::<f64>::new(
+                        initial_buff_size * 2_u32.pow(factor),
+                        SampleRole::UpSample,
+                    )
+                })
+                .collect::<Vec<OversampleStage<f64>>>(),
+            down_stages: (1..=new_factor.factor)
+                .into_iter()
+                .map(|factor| {
+                    OversampleStage::<f64>::new(
+                        initial_buff_size * 2_u32.pow(new_factor.factor - factor),
+                        SampleRole::DownSample,
+                    )
+                })
+                .collect::<Vec<OversampleStage<f64>>>(),
+            kernel: Array1::<f64>::from_iter(FILTER_TAPS.into_iter()),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.up_stages.iter_mut().for_each(|stage| stage.reset());
+        self.down_stages.iter_mut().for_each(|stage| stage.reset());
+    }
+
+    pub fn process_up(&mut self, input: &Vec<f64>) -> Vec<f64> {
+        let stages = self.up_stages.iter_mut();
+        let mut last_stage = input;
+        for stage in stages {
+            stage.process_up(last_stage, &self.kernel);
+            last_stage = stage.get_processed_data();
+        }
+        last_stage.to_owned()
+    }
+
+    pub fn process_down(&mut self, input: &Vec<f64>) -> Vec<f64> {
         let stages = self.down_stages.iter_mut();
         let mut last_stage = input;
         for stage in stages {
@@ -332,6 +394,7 @@ impl Oversample<f32> {
 
 #[cfg(test)]
 mod tests {
+
     use crate::oversample::OSFactorScale;
     use crate::oversample::Oversample;
     use crate::oversample::OversampleFactor;
@@ -418,8 +481,363 @@ mod tests {
     }
 
     #[test]
-    fn test_up_sample_2x() {
-        unimplemented!()
+    fn test_up_sample_2x_small() {
+        let mut os = Oversample::<f64>::new(OversampleFactor::TwoTimes, 8);
+        let sig = range_to_float_vec(0, 8);
+        let up_sampled_2x = os.process_up(&sig);
+        let expected_result = iter_collect_32f(vec![
+            0.0,
+            0.0,
+            -0.012943094819578109,
+            0.0,
+            -0.012308740070101515,
+            0.0,
+            -0.025942636464766737,
+            0.0,
+            -0.024552790315898507,
+            0.0,
+            -0.03901680260122647,
+            0.0,
+            -0.03671013252170096,
+            0.0,
+            -0.05219252318027351,
+            0.0,
+        ]);
+
+        assert_eq!(iter_collect_32f(up_sampled_2x), expected_result);
+    }
+
+    #[test]
+    fn test_up_sample_4x_small() {
+        let mut os = Oversample::<f64>::new(OversampleFactor::FourTimes, 8);
+        let sig = range_to_float_vec(0, 8);
+        let up_sampled_4x = os.process_up(&sig);
+        let expected_result = iter_collect_32f(vec![
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.00016752370350858967,
+            0.0,
+            -0.00017573421718031495,
+            0.0,
+            0.00034398851730504574,
+            0.0,
+            -0.00036157502184628915,
+            0.0,
+            0.0007166001911914599,
+            0.0,
+            -0.0007542227121744935,
+            0.0,
+            0.001113331668023501,
+            0.0,
+            -0.0011745253846596538,
+            0.0,
+            0.0017471427328399991,
+            0.0,
+            -0.0018470640365824877,
+            0.0,
+            0.0024332936513991343,
+            0.0,
+            -0.0025809505377502027,
+            0.0,
+            0.0034222057938664723,
+            0.0,
+            -0.003642942051680894,
+            0.0,
+        ]);
+
+        assert_eq!(iter_collect_32f(up_sampled_4x), expected_result);
+    }
+
+    #[test]
+    fn test_up_sample_8x_small() {
+        let mut os = Oversample::<f64>::new(OversampleFactor::EightTimes, 8);
+        let sig = range_to_float_vec(0, 8);
+        let up_sampled_8x = os.process_up(&sig);
+        let expected_result = iter_collect_32f(vec![
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            -2.168275179038566e-06,
+            0.0,
+            2.2745446360091485e-06,
+            0.0,
+            -1.1572563824815977e-07,
+            0.0,
+            1.3081052012924913e-07,
+            0.0,
+            -4.600753130774831e-06,
+            0.0,
+            4.839787931163157e-06,
+            0.0,
+            -4.222386990262499e-07,
+            0.0,
+            4.823404146479441e-07,
+            0.0,
+            -9.828870842837906e-06,
+            0.0,
+            1.0369255309823835e-05,
+            0.0,
+            -1.2062800486231001e-06,
+            0.0,
+            1.3966205418067599e-06,
+            0.0,
+            -1.603855930337123e-05,
+            0.0,
+            1.703128263709855e-05,
+            0.0,
+            -2.9577613684927457e-06,
+            0.0,
+            3.5133675904811584e-06,
+            0.0,
+            -2.6841494318174964e-05,
+            0.0,
+            2.8895932604369422e-05,
+            0.0,
+            -7.498137782589878e-06,
+            0.0,
+            9.539339161530052e-06,
+            0.0,
+            -4.419946541457185e-05,
+            0.0,
+            5.138341609411515e-05,
+            0.0,
+            -3.287371929833348e-05,
+            0.0,
+            0.00010183952757235151,
+            0.00016858237728001698,
+            7.743787711557534e-05,
+            0.0,
+            -6.770393976354534e-05,
+            -0.0001768447776716043,
+            -0.0001534780853359649,
+            0.0,
+            0.00022521010652716143,
+            0.0003461623686067772,
+        ]);
+
+        assert_eq!(iter_collect_32f(up_sampled_8x), expected_result);
+    }
+
+    #[test]
+    fn test_up_sample_16x_small() {
+        let mut os = Oversample::<f64>::new(OversampleFactor::SixteenTimes, 8);
+        let sig = range_to_float_vec(0, 8);
+        let up_sampled_16x = os.process_up(&sig);
+        let expected_result = iter_collect_32f(vec![
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            2.806419123723386e-08,
+            0.0,
+            -2.943964689522919e-08,
+            0.0,
+            1.4978479089021315e-09,
+            0.0,
+            -1.6930929654312068e-09,
+            0.0,
+            3.419601538621763e-09,
+            0.0,
+            -3.762540309236139e-09,
+            0.0,
+            2.469379700187792e-09,
+            0.0,
+            -2.8567917912405475e-09,
+            0.0,
+            6.287296607853106e-08,
+            0.0,
+            -6.63630120817841e-08,
+            0.0,
+            7.605130721855296e-09,
+            0.0,
+            -8.893842311506477e-09,
+            0.0,
+            1.5956566524510785e-08,
+            0.0,
+            -1.8236965037909117e-08,
+            0.0,
+            1.487002006005615e-08,
+            0.0,
+            -1.8280420790377385e-08,
+            0.0,
+            1.5011240354650044e-07,
+            0.0,
+            -1.6283158650824303e-07,
+            0.0,
+            4.497693339235821e-08,
+            0.0,
+            -6.091777977154983e-08,
+            0.0,
+            1.0377846923823098e-07,
+            0.0,
+            -1.5897421719027295e-07,
+            0.0,
+            2.8652953108822606e-07,
+            0.0,
+            -1.137182264312365e-06,
+            -2.1819776940451505e-06,
+            -1.6167289740242459e-06,
+            0.0,
+            1.6356326346708743e-06,
+            2.288918725750784e-06,
+            1.2821127025461411e-06,
+            0.0,
+            -4.680756273914324e-07,
+            -1.1645697175696516e-07,
+            2.54072188353592e-07,
+            0.0,
+            -3.09315245826344e-07,
+            1.316371832448989e-07,
+            7.233087726310213e-07,
+            0.0,
+            -2.4609632861026158e-06,
+            -4.629827802396532e-06,
+            -3.4942576267286723e-06,
+            0.0,
+            3.551780532681899e-06,
+            4.870373194231498e-06,
+            2.74874640608505e-06,
+            0.0,
+            -1.0769553488161305e-06,
+            -4.249070559606927e-07,
+            3.8779805338618434e-07,
+            0.0,
+            -4.881732642216914e-07,
+            4.853885871464764e-07,
+            1.61469099249281e-06,
+            0.0,
+            -5.237644359274428e-06,
+            -9.890984845490228e-06,
+            -7.680345973384166e-06,
+            0.0,
+            7.838991986245219e-06,
+            1.0434784297040746e-05,
+            5.777404317562723e-06,
+            0.0,
+            -2.269785202435481e-06,
+            -1.2139031910305736e-06,
+            5.271277284022413e-07,
+            0.0,
+            -5.983763153388258e-07,
+            1.4054465497404469e-06,
+            2.124649567488963e-06,
+            0.0,
+            -9.916277314528848e-06,
+            -1.6139915718674515e-05,
+            -1.3065527698190472e-05,
+            0.0,
+            1.3405460142692664e-05,
+            1.7138912613299124e-05,
+            1.090298524580925e-05,
+            0.0,
+            -3.2756928970308225e-06,
+            -2.9764530778889845e-06,
+            2.9724100523248675e-07,
+            0.0,
+            -3.278228812151181e-07,
+            3.5355704790248353e-06,
+            3.7689179615161576e-06,
+            0.0,
+            -1.714365613959223e-05,
+            -2.701112037959445e-05,
+        ]);
+
+        assert_eq!(iter_collect_32f(up_sampled_16x), expected_result);
+    }
+
+    #[test]
+    fn test_down_sample_2x_small() {
+        let mut os = Oversample::<f64>::new(OversampleFactor::TwoTimes, 8);
+        let sig = range_to_float_vec(0, 16);
+        let down_sampled_2x = os.process_down(&sig);
+        let expected_result = iter_collect_32f(vec![
+            0.0,
+            -0.012943094819578109,
+            -0.012308740070101515,
+            -0.025942636464766737,
+            -0.024552790315898507,
+            -0.03901680260122647,
+            -0.03671013252170096,
+            -0.05219252318027351,
+        ]);
+
+        assert_eq!(iter_collect_32f(down_sampled_2x), expected_result);
+    }
+
+    #[test]
+    fn test_down_sample_4x_small() {
+        let mut os = Oversample::<f64>::new(OversampleFactor::FourTimes, 8);
+        let sig = range_to_float_vec(0, 32);
+        let down_sampled_4x = os.process_down(&sig);
+        let expected_result = iter_collect_32f(vec![
+            0.0,
+            7.965659491843221e-05,
+            7.533389779174369e-05,
+            0.00015870132418106852,
+            0.0001489576196064275,
+            0.0002363480222189285,
+            0.00021928636423278896,
+            0.00031025949915092433,
+        ]);
+
+        assert_eq!(iter_collect_32f(down_sampled_4x), expected_result);
+    }
+
+    #[test]
+    fn test_down_sample_8x_small() {
+        let mut os = Oversample::<f64>::new(OversampleFactor::EightTimes, 8);
+        let sig = range_to_float_vec(0, 64);
+        let down_sampled_8x = os.process_down(&sig);
+        let expected_result = iter_collect_32f(vec![
+            0.0,
+            -4.875268911234722e-07,
+            -4.5256519827845846e-07,
+            -9.453313050662675e-07,
+            -8.289969026739245e-07,
+            -1.1198132979211948e-06,
+            3.506333469088274e-05,
+            0.00015926393646145928,
+        ]);
+
+        assert_eq!(iter_collect_32f(down_sampled_8x), expected_result);
+    }
+
+    #[test]
+    fn test_down_sample_16x_small() {
+        let mut os = Oversample::<f64>::new(OversampleFactor::EightTimes, 8);
+        let sig = range_to_float_vec(0, 128);
+        let down_sampled_16x = os.process_down(&sig);
+        let expected_result = iter_collect_32f(vec![
+            0.0,
+            -4.875268911234724e-07,
+            -4.5256519827845804e-07,
+            -9.45331305066268e-07,
+            -8.289969026739222e-07,
+            -1.1198132979211957e-06,
+            3.506333469088274e-05,
+            0.00015926393646145936,
+        ]);
+
+        assert_eq!(iter_collect_32f(down_sampled_16x), expected_result);
     }
 
     fn get_kern() -> Array1<f64> {

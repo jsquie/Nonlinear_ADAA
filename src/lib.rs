@@ -8,11 +8,15 @@ mod oversample;
 // https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/gain/src/lib.rs to get
 // started
 
+const MAX_BLOCK_SIZE: u32 = 32;
+
 pub struct NonlinearAdaa {
     params: Arc<NonlinearAdaaParams>,
     first_order_nlprocs: Vec<adaa::ADAAFirst>,
     second_order_nlprocs: Vec<adaa::ADAASecond>,
     proc_style: adaa::NLProc,
+    os: Vec<oversample::Oversample<f32>>,
+    os_scratch_buf: [f32; (MAX_BLOCK_SIZE * 16) as usize],
 }
 
 #[derive(Enum, Debug, PartialEq)]
@@ -40,15 +44,19 @@ struct NonlinearAdaaParams {
     pub nl_proc_type: EnumParam<adaa::NLProc>,
     #[id = "ad level"]
     pub nl_proc_order: EnumParam<AntiderivativeOrder>,
+    #[id = "os level"]
+    pub os_level: EnumParam<oversample::OversampleFactor>,
 }
 
 impl Default for NonlinearAdaa {
     fn default() -> Self {
         Self {
             params: Arc::new(NonlinearAdaaParams::default()),
-            first_order_nlprocs: Vec::new(),
-            second_order_nlprocs: Vec::new(),
+            first_order_nlprocs: Vec::with_capacity(2),
+            second_order_nlprocs: Vec::with_capacity(2),
             proc_style: adaa::NLProc::HardClip,
+            os: Vec::with_capacity(2),
+            os_scratch_buf: [0.; (MAX_BLOCK_SIZE * 16) as usize],
         }
     }
 }
@@ -89,9 +97,9 @@ impl Default for NonlinearAdaaParams {
             .with_smoother(SmoothingStyle::Logarithmic(5.0))
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
-
             nl_proc_type: EnumParam::new("Nonlinear Process", adaa::NLProc::HardClip),
             nl_proc_order: EnumParam::new("Antiderivative Order", AntiderivativeOrder::First),
+            os_level: EnumParam::new("Oversample Factor", oversample::OversampleFactor::TwoTimes),
         }
     }
 }
@@ -140,7 +148,7 @@ impl Plugin for NonlinearAdaa {
     fn initialize(
         &mut self,
         _audio_io_layout: &AudioIOLayout,
-        _buffer_config: &BufferConfig,
+        buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
         let num_channels = _audio_io_layout
@@ -154,8 +162,10 @@ impl Plugin for NonlinearAdaa {
             .resize_with(num_channels, || adaa::ADAAFirst::new(self.proc_style));
         self.second_order_nlprocs
             .resize_with(num_channels, || adaa::ADAASecond::new(self.proc_style));
+        self.os.resize_with(num_channels, || {
+            oversample::Oversample::<f32>::new(self.params.os_level.value(), MAX_BLOCK_SIZE)
+        });
 
-        nih_dbg!(&self.first_order_nlprocs);
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
@@ -171,6 +181,9 @@ impl Plugin for NonlinearAdaa {
         self.second_order_nlprocs.iter_mut().for_each(|&mut x| {
             x.reset(self.params.nl_proc_type.value());
         });
+
+        self.os.iter_mut().for_each(|x| x.reset());
+        self.os_scratch_buf = [0.0; (MAX_BLOCK_SIZE * 16) as usize];
     }
 
     fn process(
@@ -179,16 +192,22 @@ impl Plugin for NonlinearAdaa {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        for (_, block) in buffer.iter_blocks(32) {
-            for (block_channel, (first_order_proc, second_order_proc)) in block.into_iter().zip(
-                self.first_order_nlprocs
-                    .iter_mut()
-                    .zip(self.second_order_nlprocs.iter_mut()),
-            ) {
+        for (_, block) in buffer.iter_blocks(MAX_BLOCK_SIZE as usize) {
+            for (block_channel, (os, (first_order_proc, second_order_proc))) in
+                block.into_iter().zip(
+                    self.os.iter_mut().zip(
+                        self.first_order_nlprocs
+                            .iter_mut()
+                            .zip(self.second_order_nlprocs.iter_mut()),
+                    ),
+                )
+            {
                 let gain = self.params.gain.smoothed.next();
                 let output = self.params.output.smoothed.next();
                 let order = self.params.nl_proc_order.value();
                 let style = self.params.nl_proc_type.value();
+
+                os.process_up(block_channel, &self.os_scratch_buf);
 
                 if style != self.proc_style {
                     first_order_proc.reset(style);
