@@ -4,6 +4,7 @@ use std::sync::Arc;
 mod adaa;
 mod circular_buffer;
 mod oversample;
+// mod oversample;
 // This is a shortened version of the gain example with most comments removed, check out
 // https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/gain/src/lib.rs to get
 // started
@@ -15,7 +16,6 @@ pub struct NonlinearAdaa {
     first_order_nlprocs: Vec<adaa::ADAAFirst>,
     second_order_nlprocs: Vec<adaa::ADAASecond>,
     proc_style: adaa::NLProc,
-    os: Vec<oversample::Oversample<f32>>,
     os_scratch_buf: [f32; (MAX_BLOCK_SIZE * 16) as usize],
 }
 
@@ -55,7 +55,6 @@ impl Default for NonlinearAdaa {
             first_order_nlprocs: Vec::with_capacity(2),
             second_order_nlprocs: Vec::with_capacity(2),
             proc_style: adaa::NLProc::HardClip,
-            os: Vec::with_capacity(2),
             os_scratch_buf: [0.; (MAX_BLOCK_SIZE * 16) as usize],
         }
     }
@@ -162,9 +161,6 @@ impl Plugin for NonlinearAdaa {
             .resize_with(num_channels, || adaa::ADAAFirst::new(self.proc_style));
         self.second_order_nlprocs
             .resize_with(num_channels, || adaa::ADAASecond::new(self.proc_style));
-        self.os.resize_with(num_channels, || {
-            oversample::Oversample::<f32>::new(self.params.os_level.value(), MAX_BLOCK_SIZE)
-        });
 
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
@@ -182,7 +178,6 @@ impl Plugin for NonlinearAdaa {
             x.reset(self.params.nl_proc_type.value());
         });
 
-        self.os.iter_mut().for_each(|x| x.reset());
         self.os_scratch_buf = [0.0; (MAX_BLOCK_SIZE * 16) as usize];
     }
 
@@ -193,21 +188,15 @@ impl Plugin for NonlinearAdaa {
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         for (_, block) in buffer.iter_blocks(MAX_BLOCK_SIZE as usize) {
-            for (block_channel, (os, (first_order_proc, second_order_proc))) in
-                block.into_iter().zip(
-                    self.os.iter_mut().zip(
-                        self.first_order_nlprocs
-                            .iter_mut()
-                            .zip(self.second_order_nlprocs.iter_mut()),
-                    ),
-                )
-            {
+            for (block_channel, (first_order_proc, second_order_proc)) in block.into_iter().zip(
+                self.first_order_nlprocs
+                    .iter_mut()
+                    .zip(self.second_order_nlprocs.iter_mut()),
+            ) {
                 let gain = self.params.gain.smoothed.next();
                 let output = self.params.output.smoothed.next();
                 let order = self.params.nl_proc_order.value();
                 let style = self.params.nl_proc_type.value();
-
-                os.process_up(block_channel, &self.os_scratch_buf);
 
                 if style != self.proc_style {
                     first_order_proc.reset(style);
