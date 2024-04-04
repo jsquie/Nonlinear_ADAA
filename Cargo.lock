@@ -6,12 +6,19 @@ version = 3
 name = "Nonlinear_ADAA"
 version = "0.1.0"
 dependencies = [
+ "blas-src",
  "ndarray",
  "ndarray-rand",
  "nih_plug",
  "num-traits",
  "polylog",
 ]
+
+[[package]]
+name = "accelerate-src"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "415ed64958754dbe991900f3940677e6a7eefb4d7367afd70d642677b0c7d19d"
 
 [[package]]
 name = "addr2line"
@@ -232,6 +239,15 @@ name = "bitflags"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf4b9d6a944f767f8e5e0db018570623c85f3d925ac718db4e06d0187adb21c1"
+
+[[package]]
+name = "blas-src"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb48fbaa7a0cb9d6d96c46bac6cedb16f13a10aebcef1c4e73515aaae8c9909d"
+dependencies = [
+ "accelerate-src",
+]
 
 [[package]]
 name = "block"

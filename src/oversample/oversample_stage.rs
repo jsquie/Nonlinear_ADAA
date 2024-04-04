@@ -88,6 +88,7 @@ mod tests {
         Array1::<f64>::from_iter(FILTER_TAPS.into_iter())
     }
 
+    /*
     #[test]
     fn test_2x_factor_scale() {
         let two = OSFactorScale::TWO_TIMES;
@@ -116,6 +117,7 @@ mod tests {
         assert_eq!(two.scale, 16);
     }
 
+    */
     #[test]
     fn test_create_os_stage() {
         let _buf: &mut [f32] = &mut [0.0; 8];

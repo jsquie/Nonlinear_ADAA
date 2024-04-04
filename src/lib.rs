@@ -1,13 +1,13 @@
 use nih_plug::prelude::*;
+use std::cmp::max;
 use std::sync::Arc;
-
+extern crate blas_src;
 mod adaa;
 mod circular_buffer;
 mod oversample;
 
 const MAX_BLOCK_SIZE: usize = 32;
 const MAX_OS_FACTOR_SCALE: usize = 16;
-const MAX_OS_FACTOR: usize = 4;
 
 pub struct NonlinearAdaa {
     params: Arc<NonlinearAdaaParams>,
@@ -220,6 +220,8 @@ impl Plugin for NonlinearAdaa {
                     second_order_proc.reset(style);
                 }
 
+                let mut max_processed: f32 = 0.0;
+
                 self.over_sample_process_buf
                     .iter_mut()
                     .take(num_processed_samples)
@@ -229,8 +231,21 @@ impl Plugin for NonlinearAdaa {
                             AntiderivativeOrder::First => first_order_proc.next_adaa(&sample),
                             AntiderivativeOrder::Second => second_order_proc.next_adaa(&sample),
                         };
+
+                        max_processed = if sample.abs() > max_processed {
+                            *sample
+                        } else {
+                            max_processed
+                        };
+
                         *sample *= output;
                     });
+
+                if max_processed > 1.0 {
+                    self.over_sample_process_buf
+                        .iter_mut()
+                        .for_each(|x| *x /= max_processed);
+                }
 
                 oversampler.process_down(&self.over_sample_process_buf, block_channel);
             }

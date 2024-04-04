@@ -1,10 +1,6 @@
-#[allow(dead_code)]
 pub const NUM_OS_FILTER_TAPS: usize = 48;
-#[allow(dead_code)]
 pub const UP_DELAY: usize = (NUM_OS_FILTER_TAPS / 2) - 1;
-#[allow(dead_code)]
 pub const DOWN_DELAY: usize = NUM_OS_FILTER_TAPS / 2;
-#[allow(dead_code)]
 pub const FILTER_TAPS: [f64; NUM_OS_FILTER_TAPS] = [
     -0.0064715474097890545,
     0.006788724784527351,
@@ -56,7 +52,5 @@ pub const FILTER_TAPS: [f64; NUM_OS_FILTER_TAPS] = [
     -0.0064715474097890545,
 ];
 
-#[allow(dead_code)]
 pub const FOLD_SCALE_64: f64 = 0.5031597730627207;
-#[allow(dead_code)]
 pub const FOLD_SCALE_32: f32 = FOLD_SCALE_64 as f32;

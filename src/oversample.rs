@@ -149,7 +149,19 @@ where
     }
 
     pub fn process_down(&mut self, input: &[T], output: &mut [T]) {
-        let mut stages = self.down_stages.iter_mut();
+        let num_remaining_stages: usize = match self.factor {
+            OversampleFactor::TwoTimes => 1,
+            OversampleFactor::FourTimes => 2,
+            OversampleFactor::EightTimes => 3,
+            OversampleFactor::SixteenTimes => 4,
+        };
+
+        let mut stages = self
+            .down_stages
+            .iter_mut()
+            .rev()
+            .take(num_remaining_stages)
+            .rev();
 
         let mut last_stage = match stages.next() {
             Some(stage) => {
@@ -159,13 +171,6 @@ where
             None => panic!(
                 "There must be at least one up sample stage for processing the raw input data"
             ),
-        };
-
-        let num_remaining_stages: usize = match self.factor {
-            OversampleFactor::TwoTimes => 0,
-            OversampleFactor::FourTimes => 1,
-            OversampleFactor::EightTimes => 2,
-            OversampleFactor::SixteenTimes => 3,
         };
 
         for (idx, stage) in stages.enumerate() {
@@ -191,55 +196,55 @@ mod tests {
     #[test]
     fn test_create_os_2x() {
         let os = Oversample::<f32>::new(OversampleFactor::TwoTimes, 4);
-        assert_eq!(os.up_stages.len(), 1);
-        assert_eq!(os.down_stages.len(), 1);
+        assert_eq!(os.up_stages.len(), 4);
+        assert_eq!(os.down_stages.len(), 4);
         assert_eq!(os.up_stages[0].data.len(), 8);
-        assert_eq!(os.down_stages[0].data.len(), 4);
+        assert_eq!(os.down_stages[3].data.len(), 4);
         let os_64 = Oversample::<f64>::new(OversampleFactor::TwoTimes, 4);
-        assert_eq!(os_64.up_stages.len(), 1);
-        assert_eq!(os_64.down_stages.len(), 1);
+        assert_eq!(os_64.up_stages.len(), 4);
+        assert_eq!(os_64.down_stages.len(), 4);
         assert_eq!(os_64.up_stages[0].data.len(), 8);
-        assert_eq!(os_64.down_stages[0].data.len(), 4);
+        assert_eq!(os_64.down_stages[3].data.len(), 4);
     }
 
     #[test]
     fn test_create_os_4x() {
         let os = Oversample::<f32>::new(OversampleFactor::FourTimes, 4);
-        assert_eq!(os.up_stages.len(), 2);
-        assert_eq!(os.down_stages.len(), 2);
+        assert_eq!(os.up_stages.len(), 4);
+        assert_eq!(os.down_stages.len(), 4);
         assert_eq!(os.up_stages[0].data.len(), 8);
         assert_eq!(os.up_stages[1].data.len(), 16);
-        assert_eq!(os.down_stages[0].data.len(), 8);
-        assert_eq!(os.down_stages[1].data.len(), 4);
+        assert_eq!(os.down_stages[2].data.len(), 8);
+        assert_eq!(os.down_stages[3].data.len(), 4);
         let os_64 = Oversample::<f64>::new(OversampleFactor::FourTimes, 4);
-        assert_eq!(os_64.up_stages.len(), 2);
-        assert_eq!(os_64.down_stages.len(), 2);
+        assert_eq!(os_64.up_stages.len(), 4);
+        assert_eq!(os_64.down_stages.len(), 4);
         assert_eq!(os_64.up_stages[0].data.len(), 8);
         assert_eq!(os_64.up_stages[1].data.len(), 16);
-        assert_eq!(os_64.down_stages[0].data.len(), 8);
-        assert_eq!(os_64.down_stages[1].data.len(), 4);
+        assert_eq!(os_64.down_stages[2].data.len(), 8);
+        assert_eq!(os_64.down_stages[3].data.len(), 4);
     }
 
     #[test]
     fn test_create_os_8x() {
         let os = Oversample::<f32>::new(OversampleFactor::EightTimes, 4);
-        assert_eq!(os.up_stages.len(), 3);
-        assert_eq!(os.down_stages.len(), 3);
+        assert_eq!(os.up_stages.len(), 4);
+        assert_eq!(os.down_stages.len(), 4);
         assert_eq!(os.up_stages[0].data.len(), 8);
         assert_eq!(os.up_stages[1].data.len(), 16);
         assert_eq!(os.up_stages[2].data.len(), 32);
-        assert_eq!(os.down_stages[0].data.len(), 16);
-        assert_eq!(os.down_stages[1].data.len(), 8);
-        assert_eq!(os.down_stages[2].data.len(), 4);
+        assert_eq!(os.down_stages[1].data.len(), 16);
+        assert_eq!(os.down_stages[2].data.len(), 8);
+        assert_eq!(os.down_stages[3].data.len(), 4);
         let os_64 = Oversample::<f64>::new(OversampleFactor::EightTimes, 4);
-        assert_eq!(os_64.up_stages.len(), 3);
-        assert_eq!(os_64.down_stages.len(), 3);
+        assert_eq!(os_64.up_stages.len(), 4);
+        assert_eq!(os_64.down_stages.len(), 4);
         assert_eq!(os_64.up_stages[0].data.len(), 8);
         assert_eq!(os_64.up_stages[1].data.len(), 16);
         assert_eq!(os_64.up_stages[2].data.len(), 32);
-        assert_eq!(os_64.down_stages[0].data.len(), 16);
-        assert_eq!(os_64.down_stages[1].data.len(), 8);
-        assert_eq!(os_64.down_stages[2].data.len(), 4);
+        assert_eq!(os_64.down_stages[1].data.len(), 16);
+        assert_eq!(os_64.down_stages[2].data.len(), 8);
+        assert_eq!(os_64.down_stages[3].data.len(), 4);
     }
 
     #[test]
