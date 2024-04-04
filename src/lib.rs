@@ -4,19 +4,18 @@ use std::sync::Arc;
 mod adaa;
 mod circular_buffer;
 mod oversample;
-// mod oversample;
-// This is a shortened version of the gain example with most comments removed, check out
-// https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/gain/src/lib.rs to get
-// started
 
-const MAX_BLOCK_SIZE: u32 = 32;
+const MAX_BLOCK_SIZE: usize = 32;
+const MAX_OS_FACTOR_SCALE: usize = 16;
+const MAX_OS_FACTOR: usize = 4;
 
 pub struct NonlinearAdaa {
     params: Arc<NonlinearAdaaParams>,
     first_order_nlprocs: Vec<adaa::ADAAFirst>,
     second_order_nlprocs: Vec<adaa::ADAASecond>,
     proc_style: adaa::NLProc,
-    os_scratch_buf: [f32; (MAX_BLOCK_SIZE * 16) as usize],
+    oversamplers: Vec<oversample::Oversample<f32>>,
+    over_sample_process_buf: [f32; MAX_BLOCK_SIZE * MAX_OS_FACTOR_SCALE],
 }
 
 #[derive(Enum, Debug, PartialEq)]
@@ -55,7 +54,8 @@ impl Default for NonlinearAdaa {
             first_order_nlprocs: Vec::with_capacity(2),
             second_order_nlprocs: Vec::with_capacity(2),
             proc_style: adaa::NLProc::HardClip,
-            os_scratch_buf: [0.; (MAX_BLOCK_SIZE * 16) as usize],
+            oversamplers: Vec::with_capacity(2),
+            over_sample_process_buf: [0.0; MAX_OS_FACTOR_SCALE * MAX_BLOCK_SIZE],
         }
     }
 }
@@ -147,7 +147,7 @@ impl Plugin for NonlinearAdaa {
     fn initialize(
         &mut self,
         _audio_io_layout: &AudioIOLayout,
-        buffer_config: &BufferConfig,
+        _buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
         let num_channels = _audio_io_layout
@@ -162,6 +162,9 @@ impl Plugin for NonlinearAdaa {
         self.second_order_nlprocs
             .resize_with(num_channels, || adaa::ADAASecond::new(self.proc_style));
 
+        self.oversamplers.resize_with(num_channels, || {
+            oversample::Oversample::new(self.params.os_level.value(), MAX_BLOCK_SIZE as u32)
+        });
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
@@ -178,7 +181,10 @@ impl Plugin for NonlinearAdaa {
             x.reset(self.params.nl_proc_type.value());
         });
 
-        self.os_scratch_buf = [0.0; (MAX_BLOCK_SIZE * 16) as usize];
+        self.oversamplers.iter_mut().for_each(|x| x.reset());
+        self.over_sample_process_buf
+            .iter_mut()
+            .for_each(|x| *x = 0.0);
     }
 
     fn process(
@@ -188,11 +194,22 @@ impl Plugin for NonlinearAdaa {
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         for (_, block) in buffer.iter_blocks(MAX_BLOCK_SIZE as usize) {
-            for (block_channel, (first_order_proc, second_order_proc)) in block.into_iter().zip(
-                self.first_order_nlprocs
-                    .iter_mut()
-                    .zip(self.second_order_nlprocs.iter_mut()),
-            ) {
+            for (block_channel, (oversampler, (first_order_proc, second_order_proc))) in
+                block.into_iter().zip(
+                    self.oversamplers.iter_mut().zip(
+                        self.first_order_nlprocs
+                            .iter_mut()
+                            .zip(self.second_order_nlprocs.iter_mut()),
+                    ),
+                )
+            {
+                if self.params.os_level.value() != oversampler.get_oversample_factor() {
+                    oversampler.set_oversample_factor(self.params.os_level.value());
+                }
+
+                let num_processed_samples =
+                    oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
+
                 let gain = self.params.gain.smoothed.next();
                 let output = self.params.output.smoothed.next();
                 let order = self.params.nl_proc_order.value();
@@ -203,46 +220,21 @@ impl Plugin for NonlinearAdaa {
                     second_order_proc.reset(style);
                 }
 
-                for sample in block_channel.iter_mut() {
-                    *sample *= gain;
-                    *sample = match order {
-                        AntiderivativeOrder::First => first_order_proc.next_adaa(sample),
-                        AntiderivativeOrder::Second => second_order_proc.next_adaa(sample),
-                    };
-                    *sample *= output;
-                    // sample = nl_proc.next_adaa(&sample);
-                }
+                self.over_sample_process_buf
+                    .iter_mut()
+                    .take(num_processed_samples)
+                    .for_each(|sample| {
+                        *sample *= gain;
+                        *sample = match order {
+                            AntiderivativeOrder::First => first_order_proc.next_adaa(&sample),
+                            AntiderivativeOrder::Second => second_order_proc.next_adaa(&sample),
+                        };
+                        *sample *= output;
+                    });
+
+                oversampler.process_down(&self.over_sample_process_buf, block_channel);
             }
         }
-        /*
-        for channel_samples in buffer.iter_samples() {
-            // Smoothing is optionally built into the parameters themselves
-            let mut first_order_processor = self.first_order_nlprocs.iter_mut();
-            let mut second_order_processor = self.second_order_nlprocs.iter_mut();
-
-            // let adaa_order = self.params.nl_proc_type;
-            // let output = self.params.output.smoothed.next();
-            for s in channel_samples.into_iter() {
-                let mut current_sample = *s;
-                current_sample *= gain;
-
-                current_sample = match self.params.nl_proc_order.value() {
-                    AntiderivativeOrder::First => match first_order_processor.next() {
-                        Some(x) => x.next_adaa(&current_sample),
-                        _ => panic!("Crap. There was no first order processor"),
-                    },
-                    AntiderivativeOrder::Second => match second_order_processor.next() {
-                        Some(x) => x.next_adaa(&current_sample),
-                        _ => panic!("Crap, there was no second order processor"),
-                    },
-                };
-                current_sample *= output;
-
-                *s = current_sample.clone();
-            }
-        }
-        */
-
         ProcessStatus::Normal
     }
 }

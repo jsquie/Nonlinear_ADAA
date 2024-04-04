@@ -1,4 +1,3 @@
-use crate::nih_debug_assert_eq;
 use ndarray::{s, Array1};
 use num_traits::Float;
 
@@ -14,7 +13,7 @@ where
 
 impl<T> CircularBuffer<T>
 where
-    T: Float + 'static,
+    T: Float + From<f32> + 'static,
 {
     pub fn new(initial_size: usize) -> Self {
         CircularBuffer {
@@ -25,7 +24,7 @@ where
     }
 
     pub fn reset(&mut self) {
-        self.data = Array1::<T>::zeros(self.size);
+        self.data.iter_mut().for_each(|x| *x = 0.0_f32.into());
         self.pos = 0;
     }
 

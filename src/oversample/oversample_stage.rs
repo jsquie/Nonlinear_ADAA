@@ -38,6 +38,7 @@ where
     pub fn reset(&mut self) {
         self.filter_buff.reset();
         self.delay_buff.reset();
+        self.data.iter_mut().for_each(|x| *x = 0.0_32.into());
     }
 
     pub fn process_up(&mut self, input: &[T], kernel: &Array1<T>) {
@@ -117,12 +118,12 @@ mod tests {
 
     #[test]
     fn test_create_os_stage() {
-        let mut buf: &mut [f32] = &mut [0.0; 8];
+        let _buf: &mut [f32] = &mut [0.0; 8];
         let os_stage = OversampleStage::<f32>::new(8, SampleRole::UpSample);
         assert_eq!(os_stage.data, &[0.0_f32; 8]);
         assert_eq!(os_stage.size, 8);
 
-        let mut buf_64: &mut [f64] = &mut [0.0; 8];
+        let _buf_64: &mut [f64] = &mut [0.0; 8];
         let os_stage_64 = OversampleStage::<f64>::new(8, SampleRole::UpSample);
 
         assert_eq!(os_stage_64.data, &[0.0_f64; 8]);
@@ -131,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_os_stage_up() {
-        let mut buf: &mut [f64] = &mut [0.0; 8];
+        let _buf: &mut [f64] = &mut [0.0; 8];
         let mut os_stage = OversampleStage::new(8, SampleRole::UpSample);
         let kern = get_kern();
 
@@ -155,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_os_stage_down() {
-        let mut buf: &mut [f64] = &mut [0.0; 8];
+        let _buf: &mut [f64] = &mut [0.0; 8];
         let mut os_stage = OversampleStage::new(8, SampleRole::DownSample);
 
         let kern = get_kern();
@@ -182,8 +183,8 @@ mod tests {
 
     #[test]
     fn test_multi_stage_up_small() {
-        let mut buf_0: &mut [f64] = &mut [0.0; 8];
-        let mut buf_1: &mut [f64] = &mut [0.0; 16];
+        let _buf_0: &mut [f64] = &mut [0.0; 8];
+        let _buf_1: &mut [f64] = &mut [0.0; 16];
 
         let mut os_stage_0 = OversampleStage::new(8, SampleRole::UpSample);
         let mut os_stage_1 = OversampleStage::new(16, SampleRole::UpSample);
@@ -229,8 +230,8 @@ mod tests {
 
     #[test]
     fn test_os_multi_stage_down() {
-        let mut buf_0: &mut [f64] = &mut [0.0; 16];
-        let mut buf_1: &mut [f64] = &mut [0.0; 8];
+        let _buf_0: &mut [f64] = &mut [0.0; 16];
+        let _buf_1: &mut [f64] = &mut [0.0; 8];
 
         let mut os_stage_0 = OversampleStage::new(16, SampleRole::DownSample);
         let mut os_stage_1 = OversampleStage::new(8, SampleRole::DownSample);
