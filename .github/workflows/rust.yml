@@ -32,7 +32,7 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
     - name: Build plugin
-      run: cargo xtask bundle Nonlinear_Adaa --release
+      run: cargo xtask bundle Nonlinear_ADAA --release
     - name: Upload binaries to release
       uses: svenstaro/upload-release-action@v2
       with:
