@@ -6,7 +6,7 @@ pub enum NLProc {
     #[name = "Hard Clip"]
     HardClip,
     #[id = "tanh"]
-    #[name = "Hyperbolic Tangent (soft clip)"]
+    #[name = "Tanh"]
     Tanh,
 }
 

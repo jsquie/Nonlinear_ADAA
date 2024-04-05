@@ -41,16 +41,16 @@ impl OSFactorScale {
 #[derive(Enum, Debug, Copy, Clone, PartialEq)]
 pub enum OversampleFactor {
     #[id = "2x"]
-    #[name = "Two Times"]
+    #[name = "2x"]
     TwoTimes,
     #[id = "4x"]
-    #[name = "Four Times"]
+    #[name = "4x"]
     FourTimes,
     #[id = "8x"]
-    #[name = "Eight Times"]
+    #[name = "8x"]
     EightTimes,
     #[id = "16x"]
-    #[name = "Sixteen Times"]
+    #[name = "16x"]
     SixteenTimes,
 }
 

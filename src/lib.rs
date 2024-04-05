@@ -1,9 +1,10 @@
 use nih_plug::prelude::*;
-use std::cmp::max;
+use nih_plug_vizia::ViziaState;
 use std::sync::Arc;
 extern crate blas_src;
 mod adaa;
 mod circular_buffer;
+mod editor;
 mod oversample;
 
 const MAX_BLOCK_SIZE: usize = 32;
@@ -19,18 +20,18 @@ pub struct NonlinearAdaa {
 }
 
 #[derive(Enum, Debug, PartialEq)]
-enum AntiderivativeOrder {
+pub enum AntiderivativeOrder {
     #[id = "first order ad"]
-    #[name = "First Order Anti Derivative"]
+    #[name = "First Order"]
     First,
 
     #[id = "second order ad"]
-    #[name = "Second Order Anti Derivataive"]
+    #[name = "Second Order"]
     Second,
 }
 
 #[derive(Params)]
-struct NonlinearAdaaParams {
+pub struct NonlinearAdaaParams {
     /// The parameter's ID is used to identify the parameter in the wrappred plugin API. As long as
     /// these IDs remain constant, you can rename and reorder these fields as you wish. The
     /// parameters are exposed to the host in the same order they were defined. In this case, this
@@ -45,6 +46,9 @@ struct NonlinearAdaaParams {
     pub nl_proc_order: EnumParam<AntiderivativeOrder>,
     #[id = "os level"]
     pub os_level: EnumParam<oversample::OversampleFactor>,
+
+    #[persist = "editor-state"]
+    editor_state: Arc<ViziaState>,
 }
 
 impl Default for NonlinearAdaa {
@@ -66,6 +70,7 @@ impl Default for NonlinearAdaaParams {
             // This gain is stored as linear gain. NIH-plug comes with useful conversion functions
             // to treat these kinds of parameters as if we were dealing with decibels. Storing this
             // as decibels is easier to work with, but requires a conversion for every sample.
+            editor_state: editor::default_state(),
             gain: FloatParam::new(
                 "Gain",
                 util::db_to_gain(0.0),
@@ -86,9 +91,9 @@ impl Default for NonlinearAdaaParams {
                 "Output Gain",
                 util::db_to_gain(0.0),
                 FloatRange::Skewed {
-                    min: util::db_to_gain(-140.0),
+                    min: util::db_to_gain(-100.0),
                     max: util::db_to_gain(0.0),
-                    factor: FloatRange::gain_skew_factor(-140.0, 0.0),
+                    factor: FloatRange::gain_skew_factor(-100.0, 0.0),
                 },
             )
             .with_unit(" dB")
@@ -142,6 +147,14 @@ impl Plugin for NonlinearAdaa {
 
     fn params(&self) -> Arc<dyn Params> {
         self.params.clone()
+    }
+
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+        editor::create(
+            self.params.clone(),
+            // self.peak_meter.clone(),
+            self.params.editor_state.clone(),
+        )
     }
 
     fn initialize(

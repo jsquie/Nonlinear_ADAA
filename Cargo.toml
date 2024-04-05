@@ -22,6 +22,9 @@ ndarray = "0.15.6"
 ndarray-rand = "0.14.0"
 num-traits = "0.2.14"
 blas-src = { version = "0.8", features = ["accelerate"] }
+nih_plug_vizia = { path = "nih_plug_vizia" }
+
+atomic_float = "0.1"
 # openblas-src = { version = "0.10", features = ["cblas", "system"]}
 
 # Uncomment the below line to disable the on-by-default VST3 feature to remove
