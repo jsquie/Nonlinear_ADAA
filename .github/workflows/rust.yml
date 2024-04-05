@@ -11,12 +11,35 @@ env:
 
 jobs:
   build:
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
 
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: MacOS-14-arm64
+            os: MacOS-14
+          - name: MacOS-13
+            os: macos-13
+          - name: Linux-x64
+            os: ubuntu-latest
+          - name: Windows-x64
+            os: windows-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout Nonlinear_Adaa
+      uses: actions/checkout@v3
     - name: Build
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Build plugin
+      run: cargo xtask bundle Nonlinear_Adaa --release
+    - name: Upload binaries to release
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: ${{ env.ARCHIVE_NAME }}
+        prerelease: true
+        body: ""
+        tag: ${{ github.ref }}
