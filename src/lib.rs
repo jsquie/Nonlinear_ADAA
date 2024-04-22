@@ -65,7 +65,10 @@ impl Default for NonlinearAdaa {
             proc_style: adaa::NLProc::HardClip,
             oversamplers: Vec::with_capacity(2),
             over_sample_process_buf: [0.0; MAX_OS_FACTOR_SCALE * MAX_BLOCK_SIZE],
-            pre_filters: [iir_biquad_filter::IIRBiquadFilter::new(); 2],
+            pre_filters: [
+                iir_biquad_filter::IIRBiquadFilter::new(),
+                iir_biquad_filter::IIRBiquadFilter::new(),
+            ],
             pre_filter_cutoff: 1000.0,
         }
     }
@@ -240,84 +243,71 @@ impl Plugin for NonlinearAdaa {
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         for (_, block) in buffer.iter_blocks(MAX_BLOCK_SIZE as usize) {
-            for channel_samples in block.iter_samples() {
-                /*
-                            for ((block_channel, filter), (oversampler, (first_order_proc, second_order_proc))) in
-                                block.into_iter().zip(
-                                    self.pre_filters.iter_mut().zip(
-                                        self.oversamplers.iter_mut().zip(
-                                            self.first_order_nlprocs
-                                                .iter_mut()
-                                                .zip(self.second_order_nlprocs.iter_mut()),
-                                        ),
-                                    ),
-                                )
-                            {
-                */
-
-                // if self.params.os_level.value() != oversampler.get_oversample_factor() {
-                // oversampler.set_oversample_factor(self.params.os_level.value());
-                // };
-                let param_pre_filter_cutoff: &Smoother<f32> =
-                    &self.params.pre_filter_cutoff.smoothed;
-                if param_pre_filter_cutoff.is_smoothing() {
-                    let new_cutoff = param_pre_filter_cutoff.next();
-                    self.pre_filters[0].set_cutoff(new_cutoff);
-                    self.pre_filters[1].set_cutoff(new_cutoff);
+            for (block_channel, (oversampler, (filter, (first_order_proc, second_order_proc)))) in
+                block.into_iter().zip(
+                    self.oversamplers.iter_mut().zip(
+                        self.pre_filters.iter_mut().zip(
+                            self.first_order_nlprocs
+                                .iter_mut()
+                                .zip(self.second_order_nlprocs.iter_mut()),
+                        ),
+                    ),
+                )
+            {
+                if self.params.os_level.value() != oversampler.get_oversample_factor() {
+                    oversampler.set_oversample_factor(self.params.os_level.value());
                 };
 
                 // set cutoff
-                for (channel_idx, (sample, filter)) in channel_samples
-                    .into_iter()
-                    .zip(self.pre_filters.iter_mut())
-                    .enumerate()
-                {
-                    filter.process_block(sample);
+                let param_pre_filter_cutoff: &Smoother<f32> =
+                    &self.params.pre_filter_cutoff.smoothed;
+                if param_pre_filter_cutoff.is_smoothing() {
+                    filter.set_cutoff(param_pre_filter_cutoff.next());
+                };
+
+                filter.process_block(block_channel);
+
+                let num_processed_samples =
+                    oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
+
+                let gain = self.params.gain.smoothed.next();
+                let output = self.params.output.smoothed.next();
+                let order = self.params.nl_proc_order.value();
+                let style = self.params.nl_proc_type.value();
+
+                if style != self.proc_style {
+                    first_order_proc.reset(style);
+                    second_order_proc.reset(style);
                 }
 
-                /*
-                                let num_processed_samples =
-                                    oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
+                let mut max_processed: f32 = 0.0;
 
-                                let gain = self.params.gain.smoothed.next();
-                                let output = self.params.output.smoothed.next();
-                                let order = self.params.nl_proc_order.value();
-                                let style = self.params.nl_proc_type.value();
+                self.over_sample_process_buf
+                    .iter_mut()
+                    .take(num_processed_samples)
+                    .for_each(|sample| {
+                        *sample *= gain;
+                        *sample = match order {
+                            AntiderivativeOrder::First => first_order_proc.next_adaa(&sample),
+                            AntiderivativeOrder::Second => second_order_proc.next_adaa(&sample),
+                        };
 
-                                if style != self.proc_style {
-                                    first_order_proc.reset(style);
-                                    second_order_proc.reset(style);
-                                }
+                        max_processed = if sample.abs() > max_processed {
+                            sample.abs()
+                        } else {
+                            max_processed
+                        };
 
-                                let mut max_processed: f32 = 0.0;
+                        *sample *= output;
+                    });
 
-                                self.over_sample_process_buf
-                                    .iter_mut()
-                                    .take(num_processed_samples)
-                                    .for_each(|sample| {
-                                        *sample *= gain;
-                                        *sample = match order {
-                                            AntiderivativeOrder::First => first_order_proc.next_adaa(&sample),
-                                            AntiderivativeOrder::Second => second_order_proc.next_adaa(&sample),
-                                        };
+                if max_processed > 1.0 {
+                    self.over_sample_process_buf
+                        .iter_mut()
+                        .for_each(|x| *x /= max_processed);
+                }
 
-                                        max_processed = if sample.abs() > max_processed {
-                                            *sample
-                                        } else {
-                                            max_processed
-                                        };
-
-                                        *sample *= output;
-                                    });
-
-                                if max_processed > 1.0 {
-                                    self.over_sample_process_buf
-                                        .iter_mut()
-                                        .for_each(|x| *x /= max_processed);
-                                }
-
-                                oversampler.process_down(&self.over_sample_process_buf, block_channel);
-                */
+                oversampler.process_down(&self.over_sample_process_buf, block_channel);
             }
         }
         ProcessStatus::Normal

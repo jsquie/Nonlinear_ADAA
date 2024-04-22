@@ -110,8 +110,6 @@ impl IIRBiquadFilter {
         [b0, b1, b2, a1, a2]
     }
 
-    pub fn process_sample(&mut self, input_sample: &mut f32) {}
-
     pub fn process_block(&mut self, input_signal: &mut [f32]) {
         input_signal.iter_mut().for_each(|s| {
             let mut y: f32 = 0.0;
