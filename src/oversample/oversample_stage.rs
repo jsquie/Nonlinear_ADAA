@@ -88,36 +88,6 @@ mod tests {
         Array1::<f64>::from_iter(FILTER_TAPS.into_iter())
     }
 
-    /*
-    #[test]
-    fn test_2x_factor_scale() {
-        let two = OSFactorScale::TWO_TIMES;
-        assert_eq!(two.factor, 1);
-        assert_eq!(two.scale, 2);
-    }
-
-    #[test]
-    fn test_4x_factor_scale() {
-        let two = OSFactorScale::FOUR_TIMES;
-        assert_eq!(two.factor, 2);
-        assert_eq!(two.scale, 4);
-    }
-
-    #[test]
-    fn test_8x_factor_scale() {
-        let two = OSFactorScale::EIGHT_TIMES;
-        assert_eq!(two.factor, 3);
-        assert_eq!(two.scale, 8);
-    }
-
-    #[test]
-    fn test_16x_factor_scale() {
-        let two = OSFactorScale::SIXTEEN_TIMES;
-        assert_eq!(two.factor, 4);
-        assert_eq!(two.scale, 16);
-    }
-
-    */
     #[test]
     fn test_create_os_stage() {
         let _buf: &mut [f32] = &mut [0.0; 8];

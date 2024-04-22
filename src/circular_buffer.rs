@@ -28,10 +28,12 @@ where
         self.pos = 0;
     }
 
+    #[inline]
     fn push(&mut self, val: T) {
         self.data[self.pos] = val;
     }
 
+    #[inline]
     fn decrement_pos(&mut self) {
         self.pos = if self.pos == 0 {
             self.size - 1
@@ -40,6 +42,7 @@ where
         };
     }
 
+    #[inline]
     pub fn delay(&mut self, val: T) -> T {
         let res = self.data[self.pos];
         self.push(val);
@@ -47,6 +50,7 @@ where
         res
     }
 
+    #[inline]
     fn dot(&self, other: &Array1<T>) -> T {
         assert_eq!(self.data.shape(), other.shape());
         let p = self.pos;
@@ -55,6 +59,7 @@ where
             + self.data.slice(s![..p]).dot(&other.slice(s![o_pos..]))
     }
 
+    #[inline]
     pub fn convolve(&mut self, val: T, coeffs: &Array1<T>) -> T {
         assert_eq!(self.data.shape(), coeffs.shape());
         let res: T;

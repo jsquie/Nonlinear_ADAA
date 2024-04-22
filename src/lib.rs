@@ -1,10 +1,12 @@
 use nih_plug::prelude::*;
 use nih_plug_vizia::ViziaState;
 use std::sync::Arc;
+
 extern crate blas_src;
 mod adaa;
 mod circular_buffer;
 mod editor;
+mod iir_biquad_filter;
 mod oversample;
 
 const MAX_BLOCK_SIZE: usize = 32;
@@ -17,6 +19,8 @@ pub struct NonlinearAdaa {
     proc_style: adaa::NLProc,
     oversamplers: Vec<oversample::Oversample<f32>>,
     over_sample_process_buf: [f32; MAX_BLOCK_SIZE * MAX_OS_FACTOR_SCALE],
+    pre_filters: [iir_biquad_filter::IIRBiquadFilter; 2],
+    pre_filter_cutoff: f32,
 }
 
 #[derive(Enum, Debug, PartialEq)]
@@ -46,7 +50,8 @@ pub struct NonlinearAdaaParams {
     pub nl_proc_order: EnumParam<AntiderivativeOrder>,
     #[id = "os level"]
     pub os_level: EnumParam<oversample::OversampleFactor>,
-
+    #[id = "pre filter cutoff"]
+    pub pre_filter_cutoff: FloatParam,
     #[persist = "editor-state"]
     editor_state: Arc<ViziaState>,
 }
@@ -60,6 +65,8 @@ impl Default for NonlinearAdaa {
             proc_style: adaa::NLProc::HardClip,
             oversamplers: Vec::with_capacity(2),
             over_sample_process_buf: [0.0; MAX_OS_FACTOR_SCALE * MAX_BLOCK_SIZE],
+            pre_filters: [iir_biquad_filter::IIRBiquadFilter::new(); 2],
+            pre_filter_cutoff: 1000.0,
         }
     }
 }
@@ -91,9 +98,9 @@ impl Default for NonlinearAdaaParams {
                 "Output Gain",
                 util::db_to_gain(0.0),
                 FloatRange::Skewed {
-                    min: util::db_to_gain(-100.0),
+                    min: util::db_to_gain(-80.0),
                     max: util::db_to_gain(0.0),
-                    factor: FloatRange::gain_skew_factor(-100.0, 0.0),
+                    factor: FloatRange::gain_skew_factor(-80.0, 0.0),
                 },
             )
             .with_unit(" dB")
@@ -104,6 +111,18 @@ impl Default for NonlinearAdaaParams {
             nl_proc_type: EnumParam::new("Nonlinear Process", adaa::NLProc::HardClip),
             nl_proc_order: EnumParam::new("Antiderivative Order", AntiderivativeOrder::First),
             os_level: EnumParam::new("Oversample Factor", oversample::OversampleFactor::TwoTimes),
+            pre_filter_cutoff: FloatParam::new(
+                "Prefilter Cutoff Frequency",
+                700.0,
+                FloatRange::Skewed {
+                    min: 100.,
+                    max: 22000.0,
+                    factor: FloatRange::skew_factor(-1.0),
+                },
+            )
+            .with_smoother(SmoothingStyle::Logarithmic(100.0))
+            .with_value_to_string(formatters::v2s_f32_hz_then_khz(0))
+            .with_string_to_value(formatters::s2v_f32_hz_then_khz()),
         }
     }
 }
@@ -160,7 +179,7 @@ impl Plugin for NonlinearAdaa {
     fn initialize(
         &mut self,
         _audio_io_layout: &AudioIOLayout,
-        _buffer_config: &BufferConfig,
+        buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
         let num_channels = _audio_io_layout
@@ -178,6 +197,19 @@ impl Plugin for NonlinearAdaa {
         self.oversamplers.resize_with(num_channels, || {
             oversample::Oversample::new(self.params.os_level.value(), MAX_BLOCK_SIZE as u32)
         });
+
+        self.pre_filters[0].init(
+            &buffer_config.sample_rate,
+            &self.params.pre_filter_cutoff.value(),
+            iir_biquad_filter::FilterOrder::First,
+        );
+
+        self.pre_filters[1].init(
+            &buffer_config.sample_rate,
+            &self.params.pre_filter_cutoff.value(),
+            iir_biquad_filter::FilterOrder::First,
+        );
+
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
@@ -198,6 +230,7 @@ impl Plugin for NonlinearAdaa {
         self.over_sample_process_buf
             .iter_mut()
             .for_each(|x| *x = 0.0);
+        self.pre_filters.iter_mut().for_each(|x| x.reset());
     }
 
     fn process(
@@ -207,60 +240,84 @@ impl Plugin for NonlinearAdaa {
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         for (_, block) in buffer.iter_blocks(MAX_BLOCK_SIZE as usize) {
-            for (block_channel, (oversampler, (first_order_proc, second_order_proc))) in
-                block.into_iter().zip(
-                    self.oversamplers.iter_mut().zip(
-                        self.first_order_nlprocs
-                            .iter_mut()
-                            .zip(self.second_order_nlprocs.iter_mut()),
-                    ),
-                )
-            {
-                if self.params.os_level.value() != oversampler.get_oversample_factor() {
-                    oversampler.set_oversample_factor(self.params.os_level.value());
+            for channel_samples in block.iter_samples() {
+                /*
+                            for ((block_channel, filter), (oversampler, (first_order_proc, second_order_proc))) in
+                                block.into_iter().zip(
+                                    self.pre_filters.iter_mut().zip(
+                                        self.oversamplers.iter_mut().zip(
+                                            self.first_order_nlprocs
+                                                .iter_mut()
+                                                .zip(self.second_order_nlprocs.iter_mut()),
+                                        ),
+                                    ),
+                                )
+                            {
+                */
+
+                // if self.params.os_level.value() != oversampler.get_oversample_factor() {
+                // oversampler.set_oversample_factor(self.params.os_level.value());
+                // };
+                let param_pre_filter_cutoff: &Smoother<f32> =
+                    &self.params.pre_filter_cutoff.smoothed;
+                if param_pre_filter_cutoff.is_smoothing() {
+                    let new_cutoff = param_pre_filter_cutoff.next();
+                    self.pre_filters[0].set_cutoff(new_cutoff);
+                    self.pre_filters[1].set_cutoff(new_cutoff);
+                };
+
+                // set cutoff
+                for (channel_idx, (sample, filter)) in channel_samples
+                    .into_iter()
+                    .zip(self.pre_filters.iter_mut())
+                    .enumerate()
+                {
+                    filter.process_block(sample);
                 }
 
-                let num_processed_samples =
-                    oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
+                /*
+                                let num_processed_samples =
+                                    oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
 
-                let gain = self.params.gain.smoothed.next();
-                let output = self.params.output.smoothed.next();
-                let order = self.params.nl_proc_order.value();
-                let style = self.params.nl_proc_type.value();
+                                let gain = self.params.gain.smoothed.next();
+                                let output = self.params.output.smoothed.next();
+                                let order = self.params.nl_proc_order.value();
+                                let style = self.params.nl_proc_type.value();
 
-                if style != self.proc_style {
-                    first_order_proc.reset(style);
-                    second_order_proc.reset(style);
-                }
+                                if style != self.proc_style {
+                                    first_order_proc.reset(style);
+                                    second_order_proc.reset(style);
+                                }
 
-                let mut max_processed: f32 = 0.0;
+                                let mut max_processed: f32 = 0.0;
 
-                self.over_sample_process_buf
-                    .iter_mut()
-                    .take(num_processed_samples)
-                    .for_each(|sample| {
-                        *sample *= gain;
-                        *sample = match order {
-                            AntiderivativeOrder::First => first_order_proc.next_adaa(&sample),
-                            AntiderivativeOrder::Second => second_order_proc.next_adaa(&sample),
-                        };
+                                self.over_sample_process_buf
+                                    .iter_mut()
+                                    .take(num_processed_samples)
+                                    .for_each(|sample| {
+                                        *sample *= gain;
+                                        *sample = match order {
+                                            AntiderivativeOrder::First => first_order_proc.next_adaa(&sample),
+                                            AntiderivativeOrder::Second => second_order_proc.next_adaa(&sample),
+                                        };
 
-                        max_processed = if sample.abs() > max_processed {
-                            *sample
-                        } else {
-                            max_processed
-                        };
+                                        max_processed = if sample.abs() > max_processed {
+                                            *sample
+                                        } else {
+                                            max_processed
+                                        };
 
-                        *sample *= output;
-                    });
+                                        *sample *= output;
+                                    });
 
-                if max_processed > 1.0 {
-                    self.over_sample_process_buf
-                        .iter_mut()
-                        .for_each(|x| *x /= max_processed);
-                }
+                                if max_processed > 1.0 {
+                                    self.over_sample_process_buf
+                                        .iter_mut()
+                                        .for_each(|x| *x /= max_processed);
+                                }
 
-                oversampler.process_down(&self.over_sample_process_buf, block_channel);
+                                oversampler.process_down(&self.over_sample_process_buf, block_channel);
+                */
             }
         }
         ProcessStatus::Normal

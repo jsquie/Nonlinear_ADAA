@@ -97,14 +97,17 @@ where
         }
     }
 
+    #[inline]
     pub fn get_oversample_factor(&self) -> OversampleFactor {
         self.factor
     }
 
+    #[inline]
     pub fn set_oversample_factor(&mut self, new_factor: OversampleFactor) {
         self.factor = new_factor;
     }
 
+    #[inline]
     pub fn reset(&mut self) {
         for (up_stage, down_stage) in self.up_stages.iter_mut().zip(self.down_stages.iter_mut()) {
             up_stage.reset();
@@ -112,6 +115,7 @@ where
         }
     }
 
+    #[inline]
     pub fn process_up(&mut self, input: &[T], output: &mut [T]) -> usize {
         let mut stages = self.up_stages.iter_mut();
 
@@ -148,6 +152,7 @@ where
         last_stage.len()
     }
 
+    #[inline]
     pub fn process_down(&mut self, input: &[T], output: &mut [T]) {
         let num_remaining_stages: usize = match self.factor {
             OversampleFactor::TwoTimes => 1,

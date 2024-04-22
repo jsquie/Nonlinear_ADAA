@@ -42,6 +42,9 @@ pub(crate) fn create(
             Label::new(cx, "Output");
             ParamSlider::new(cx, Data::params, |params| &params.output);
 
+            Label::new(cx, "Prefilter Cutoff Frequency");
+            ParamSlider::new(cx, Data::params, |params| &params.pre_filter_cutoff);
+
             Label::new(cx, "Clip Style");
             ParamSlider::new(cx, Data::params, |params| &params.nl_proc_type);
 

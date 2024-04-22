@@ -98,6 +98,7 @@ impl ADAAFirst {
         }
     }
 
+    #[inline]
     pub fn next_adaa(&mut self, val: &f32) -> f32 {
         let s: f64 = *val as f64;
         let diff: f64 = s - self.x1;
@@ -179,6 +180,7 @@ impl ADAASecond {
         }
     }
 
+    #[inline]
     pub fn next_adaa(&mut self, val: &f32) -> f32 {
         let s: f64 = *val as f64;
         let res: f64;
