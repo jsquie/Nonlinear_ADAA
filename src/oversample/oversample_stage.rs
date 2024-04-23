@@ -1,5 +1,3 @@
-use ndarray::Array1;
-
 use crate::circular_buffer::CircularBuffer;
 use crate::oversample::*;
 use num_traits::Float;
@@ -10,7 +8,7 @@ use crate::oversample::os_filter_constants::*;
 #[derive(Debug)]
 pub struct OversampleStage<T>
 where
-    T: Float + Copy + 'static,
+    T: Float + Copy,
 {
     filter_buff: CircularBuffer<T>,
     delay_buff: CircularBuffer<T>,
@@ -21,7 +19,7 @@ where
 #[allow(dead_code)]
 impl<T> OversampleStage<T>
 where
-    T: Float + Copy + From<f32>,
+    T: Float + Copy + From<f32> + std::fmt::Debug,
 {
     pub fn new(target_size: usize, role: SampleRole) -> Self {
         OversampleStage {
@@ -41,7 +39,7 @@ where
         self.data.iter_mut().for_each(|x| *x = 0.0_32.into());
     }
 
-    pub fn process_up(&mut self, input: &[T], kernel: &Array1<T>) {
+    pub fn process_up(&mut self, input: &[T], kernel: &[T]) {
         let mut output = self.data.iter_mut();
 
         input.iter().for_each(|x| {
@@ -60,7 +58,7 @@ where
         });
     }
 
-    pub fn process_down(&mut self, input: &[T], kernel: &Array1<T>) {
+    pub fn process_down(&mut self, input: &[T], kernel: &[T]) {
         let output = self.data.iter_mut();
         let mut input_itr = input.into_iter();
 
@@ -84,10 +82,6 @@ where
 mod tests {
     use super::*;
 
-    fn get_kern() -> Array1<f64> {
-        Array1::<f64>::from_iter(FILTER_TAPS.into_iter())
-    }
-
     #[test]
     fn test_create_os_stage() {
         let _buf: &mut [f32] = &mut [0.0; 8];
@@ -106,7 +100,7 @@ mod tests {
     fn test_os_stage_up() {
         let _buf: &mut [f64] = &mut [0.0; 8];
         let mut os_stage = OversampleStage::new(8, SampleRole::UpSample);
-        let kern = get_kern();
+        let kern = FILTER_TAPS;
 
         let signal: &[f64] = &[1., 0., 0., 0.];
 
@@ -131,7 +125,7 @@ mod tests {
         let _buf: &mut [f64] = &mut [0.0; 8];
         let mut os_stage = OversampleStage::new(8, SampleRole::DownSample);
 
-        let kern = get_kern();
+        let kern = FILTER_TAPS;
 
         let signal_vec: Vec<f64> = vec![vec![1.], vec![0.; 15]].into_iter().flatten().collect();
 
@@ -161,7 +155,7 @@ mod tests {
         let mut os_stage_0 = OversampleStage::new(8, SampleRole::UpSample);
         let mut os_stage_1 = OversampleStage::new(16, SampleRole::UpSample);
 
-        let kern = get_kern();
+        let kern = FILTER_TAPS;
 
         let signal: &[f64] = &[1., 0., 0., 0.];
 
@@ -208,7 +202,7 @@ mod tests {
         let mut os_stage_0 = OversampleStage::new(16, SampleRole::DownSample);
         let mut os_stage_1 = OversampleStage::new(8, SampleRole::DownSample);
 
-        let kern = get_kern();
+        let kern = FILTER_TAPS;
 
         let signal_vec: Vec<f64> = vec![vec![1.], vec![0.; 31]].into_iter().flatten().collect();
         let signal: &[f64] = signal_vec.as_slice();
@@ -308,7 +302,7 @@ mod tests {
     fn test_big_rand_os_stage_up() {
         let mut os_stage_0 = OversampleStage::new(RAND_TEST_DATA.len() * 2, SampleRole::UpSample);
 
-        let kern = get_kern();
+        let kern = FILTER_TAPS;
 
         os_stage_0.process_up(RAND_TEST_DATA, &kern);
 
@@ -455,7 +449,7 @@ mod tests {
     fn test_big_rand_os_stage_down() {
         let mut os_stage_0 = OversampleStage::new(32, SampleRole::DownSample);
 
-        let kern = get_kern();
+        let kern = FILTER_TAPS;
 
         os_stage_0.process_down(RAND_TEST_DATA, &kern);
 

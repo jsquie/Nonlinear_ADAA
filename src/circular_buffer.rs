@@ -1,23 +1,22 @@
-use ndarray::{s, Array1};
 use num_traits::Float;
 
 #[derive(Debug)]
 pub struct CircularBuffer<T>
 where
-    T: Float + 'static,
+    T: std::ops::Add<Output = T> + std::ops::Mul<Output = T> + Copy + Float,
 {
-    data: Array1<T>,
+    data: Vec<T>,
     pos: usize,
     size: usize,
 }
 
 impl<T> CircularBuffer<T>
 where
-    T: Float + From<f32> + 'static,
+    T: std::ops::Add<Output = T> + std::ops::Mul<Output = T> + Copy + Float + From<f32>,
 {
     pub fn new(initial_size: usize) -> Self {
         CircularBuffer {
-            data: Array1::<T>::zeros(initial_size),
+            data: vec![0.0_f32.into(); initial_size],
             pos: 0,
             size: initial_size,
         }
@@ -51,17 +50,26 @@ where
     }
 
     #[inline]
-    fn dot(&self, other: &Array1<T>) -> T {
-        assert_eq!(self.data.shape(), other.shape());
+    fn dot(&self, other: &[T]) -> T {
+        assert!(self.size == other.len());
         let p = self.pos;
-        let o_pos = (self.size as usize) - p;
-        self.data.slice(s![p..]).dot(&other.slice(s![..o_pos]))
-            + self.data.slice(s![..p]).dot(&other.slice(s![o_pos..]))
+        let o = (self.size as usize) - p;
+        // f_h = data[p..] dot other[..o_pos]
+        // s_h = data[o_pos..] dot other[o_pos..]
+
+        let fh: T = self.data[p..]
+            .iter()
+            .zip(other[..o].iter())
+            .fold(0.0_f32.into(), |acc, (a, b)| acc + (*a * *b));
+        let sh: T = self.data[..p]
+            .iter()
+            .zip(other[o..].iter())
+            .fold(0.0_f32.into(), |acc, (a, b)| acc + (*a * *b));
+        fh + sh
     }
 
     #[inline]
-    pub fn convolve(&mut self, val: T, coeffs: &Array1<T>) -> T {
-        assert_eq!(self.data.shape(), coeffs.shape());
+    pub fn convolve(&mut self, val: T, coeffs: &[T]) -> T {
         let res: T;
         self.push(val);
         res = self.dot(&coeffs);
@@ -73,7 +81,6 @@ where
 #[cfg(test)]
 mod tests {
     // use crate::circular_buffer;
-    use ndarray::{array, Array1};
 
     use super::CircularBuffer;
 
@@ -82,7 +89,7 @@ mod tests {
         let new = CircularBuffer::<f32>::new(1);
         assert_eq!(new.pos, 0);
         assert_eq!(new.size, 1);
-        assert_eq!(new.data, Array1::<f32>::zeros(1));
+        assert_eq!(new.data, vec![0.0]);
     }
 
     #[test]
@@ -90,7 +97,7 @@ mod tests {
         let new = CircularBuffer::<f64>::new(1);
         assert_eq!(new.pos, 0);
         assert_eq!(new.size, 1);
-        assert_eq!(new.data, Array1::<f64>::zeros(1));
+        assert_eq!(new.data, vec![0.0]);
     }
 
     #[test]
@@ -115,36 +122,40 @@ mod tests {
         let mut a = CircularBuffer::<f32>::new(3);
         let mut b = CircularBuffer::<f32>::new(3);
 
-        a.data = array!(0., 1., 2.);
-        b.data = array!(0., 1., 2.);
+        a.data = vec![0., 1., 2.];
+        b.data = vec![0., 1., 2.];
 
         assert_eq!(a.dot(&b.data), 5.);
     }
 
     #[test]
     fn test_conv_01234_012() {
-        let signal = array!(0., 1., 2., 3., 4., 0., 0.);
+        let signal = vec![0., 1., 2., 3., 4., 0., 0.];
         let mut buf = CircularBuffer::<f32>::new(3);
-        let coefs = array!(0., 1., 2.);
+        let coefs = vec![0., 1., 2.];
 
-        let res = signal.map(|x| buf.convolve(*x, &coefs));
-        assert_eq!(res, array![0., 0., 1., 4., 7., 10., 8.])
+        let res = signal
+            .iter()
+            .map(|x| buf.convolve(*x, &coefs))
+            .collect::<Vec<_>>();
+        assert_eq!(res, vec![0., 0., 1., 4., 7., 10., 8.])
     }
 
     #[test]
     fn conv_sin_filter() {
-        let sig = Array1::from_vec(
-            (0..30)
-                .map(|x| (((x as f64) * std::f64::consts::PI * 2.0) / 44100.0).sin())
-                .collect(),
-        );
+        let sig: Vec<f64> = (0..30)
+            .map(|x| (((x as f64) * std::f64::consts::PI * 2.0) / 44100.0).sin())
+            .collect();
 
         let mut buf = CircularBuffer::<f64>::new(10);
-        let coefs = Array1::from_vec((0..10).map(|x| x as f64).collect());
+        let coefs: [f64; 10] = [0., 1., 2., 3., 4., 5., 6., 7., 8., 9.];
 
-        let res = sig.mapv(|x| buf.convolve(x, &coefs) as f32);
+        let res: Vec<f32> = sig
+            .iter()
+            .map(|x| buf.convolve(*x, &coefs) as f32)
+            .collect();
 
-        let expected_result = array!(
+        let expected_result = vec![
             0.00000000e+00,
             0.00000000e+00,
             1.42475857e-04,
@@ -175,48 +186,48 @@ mod tests {
             1.32502349e-01,
             1.38913733e-01,
             1.45325114e-01,
-        );
+        ];
 
         assert_eq!(res, expected_result);
     }
 
     #[test]
     fn delay_5_samples() {
-        let sig = Array1::from_vec((1..10).map(|x| x as f32).collect());
+        let sig: Vec<f32> = (1..10).map(|x| x as f32).collect();
         let mut delay_buf = CircularBuffer::<f32>::new(5);
 
         let delay_one = delay_buf.delay(sig[0]);
         assert_eq!(delay_one, 0.);
-        assert_eq!(delay_buf.data, array!(1., 0., 0., 0., 0.));
+        assert_eq!(delay_buf.data, vec![1., 0., 0., 0., 0.]);
 
         let delay_two = delay_buf.delay(sig[1]);
         assert_eq!(delay_two, 0.);
-        assert_eq!(delay_buf.data, array!(1., 0., 0., 0., 2.));
+        assert_eq!(delay_buf.data, vec![1., 0., 0., 0., 2.]);
 
         let delay_three = delay_buf.delay(sig[2]);
         assert_eq!(delay_three, 0.);
-        assert_eq!(delay_buf.data, array!(1., 0., 0., 3., 2.));
+        assert_eq!(delay_buf.data, vec![1., 0., 0., 3., 2.]);
 
         let delay_four = delay_buf.delay(sig[3]);
         assert_eq!(delay_four, 0.);
-        assert_eq!(delay_buf.data, array!(1., 0., 4., 3., 2.));
+        assert_eq!(delay_buf.data, vec![1., 0., 4., 3., 2.]);
 
         let delay_five = delay_buf.delay(sig[4]);
         assert_eq!(delay_five, 0.);
-        assert_eq!(delay_buf.data, array!(1., 5., 4., 3., 2.));
+        assert_eq!(delay_buf.data, vec![1., 5., 4., 3., 2.]);
 
         let delay_six = delay_buf.delay(sig[5]);
         assert_eq!(delay_six, sig[0]);
-        assert_eq!(delay_buf.data, array!(6., 5., 4., 3., 2.));
+        assert_eq!(delay_buf.data, vec![6., 5., 4., 3., 2.]);
 
         let delay_seven = delay_buf.delay(sig[6]);
         assert_eq!(delay_seven, sig[1]);
-        assert_eq!(delay_buf.data, array!(6., 5., 4., 3., 7.));
+        assert_eq!(delay_buf.data, vec![6., 5., 4., 3., 7.]);
     }
 
     #[test]
     fn delay_list() {
-        let sig = Array1::from_vec((1..10).map(|x| x as f32).collect());
+        let sig: Vec<_> = (1..10).map(|x| x as f32).collect();
         let mut delay_buf = CircularBuffer::<f32>::new(5);
 
         let result = sig
@@ -235,7 +246,7 @@ mod tests {
 
     #[test]
     fn test_convolve_filter_taps() {
-        let filter_taps = Array1::from_vec(vec![
+        let filter_taps = vec![
             -0.0064715474097890545,
             0.006788724784527351,
             -0.007134125572070907,
@@ -284,7 +295,7 @@ mod tests {
             -0.007134125572070907,
             0.006788724784527351,
             -0.0064715474097890545,
-        ]);
+        ];
 
         let expected_result = vec![
             0.0,

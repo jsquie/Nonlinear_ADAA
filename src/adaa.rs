@@ -1,5 +1,9 @@
 use nih_plug::prelude::*;
 
+pub trait NextAdaa {
+    fn next_adaa(&mut self, val: &f32) -> f32;
+}
+
 #[derive(Enum, Debug, Copy, PartialEq)]
 pub enum NLProc {
     #[id = "hard clip"]
@@ -97,9 +101,11 @@ impl ADAAFirst {
             proc: pr,
         }
     }
+}
 
+impl NextAdaa for ADAAFirst {
     #[inline]
-    pub fn next_adaa(&mut self, val: &f32) -> f32 {
+    fn next_adaa(&mut self, val: &f32) -> f32 {
         let s: f64 = *val as f64;
         let diff: f64 = s - self.x1;
         let ill_condition: bool = diff.abs() < 1e-5;
@@ -118,7 +124,6 @@ impl ADAAFirst {
         result as f32
     }
 }
-
 #[derive(Debug, Copy, Clone)]
 pub struct ADAASecond {
     x1: f64,
@@ -179,9 +184,11 @@ impl ADAASecond {
                     + (self.ad2_x1 - nl_func_f2(&self.proc, xbar)) / delta)
         }
     }
+}
 
+impl NextAdaa for ADAASecond {
     #[inline]
-    pub fn next_adaa(&mut self, val: &f32) -> f32 {
+    fn next_adaa(&mut self, val: &f32) -> f32 {
         let s: f64 = *val as f64;
         let res: f64;
         let d1: f64 = self.calc_d(&s);

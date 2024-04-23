@@ -1,8 +1,8 @@
+use adaa::{ADAAFirst, NextAdaa};
 use nih_plug::prelude::*;
 use nih_plug_vizia::ViziaState;
 use std::sync::Arc;
 
-extern crate blas_src;
 mod adaa;
 mod circular_buffer;
 mod editor;
@@ -11,17 +11,6 @@ mod oversample;
 
 const MAX_BLOCK_SIZE: usize = 32;
 const MAX_OS_FACTOR_SCALE: usize = 16;
-
-pub struct NonlinearAdaa {
-    params: Arc<NonlinearAdaaParams>,
-    first_order_nlprocs: Vec<adaa::ADAAFirst>,
-    second_order_nlprocs: Vec<adaa::ADAASecond>,
-    proc_style: adaa::NLProc,
-    oversamplers: Vec<oversample::Oversample<f32>>,
-    over_sample_process_buf: [f32; MAX_BLOCK_SIZE * MAX_OS_FACTOR_SCALE],
-    pre_filters: [iir_biquad_filter::IIRBiquadFilter; 2],
-    pre_filter_cutoff: f32,
-}
 
 #[derive(Enum, Debug, PartialEq)]
 pub enum AntiderivativeOrder {
@@ -32,6 +21,18 @@ pub enum AntiderivativeOrder {
     #[id = "second order ad"]
     #[name = "Second Order"]
     Second,
+}
+
+pub struct NonlinearAdaa {
+    params: Arc<NonlinearAdaaParams>,
+    first_order_nlprocs: Vec<adaa::ADAAFirst>,
+    second_order_nlprocs: Vec<adaa::ADAASecond>,
+    proc_style: adaa::NLProc,
+    proc_order: AntiderivativeOrder,
+    oversamplers: Vec<oversample::Oversample<f32>>,
+    over_sample_process_buf: [f32; MAX_BLOCK_SIZE * MAX_OS_FACTOR_SCALE],
+    pre_filters: [iir_biquad_filter::IIRBiquadFilter; 2],
+    pre_filter_cutoff: f32,
 }
 
 #[derive(Params)]
@@ -63,6 +64,7 @@ impl Default for NonlinearAdaa {
             first_order_nlprocs: Vec::with_capacity(2),
             second_order_nlprocs: Vec::with_capacity(2),
             proc_style: adaa::NLProc::HardClip,
+            proc_order: AntiderivativeOrder::First,
             oversamplers: Vec::with_capacity(2),
             over_sample_process_buf: [0.0; MAX_OS_FACTOR_SCALE * MAX_BLOCK_SIZE],
             pre_filters: [
@@ -280,33 +282,30 @@ impl Plugin for NonlinearAdaa {
                     second_order_proc.reset(style);
                 }
 
-                let mut max_processed: f32 = 0.0;
+                if order != self.proc_order {
+                    self.proc_order = order;
+                }
+
+                let proc =
+                    |input: &f32, f_proc: &mut adaa::ADAAFirst, s_proc: &mut adaa::ADAASecond| {
+                        match self.proc_order {
+                            AntiderivativeOrder::First => f_proc.next_adaa(input),
+                            AntiderivativeOrder::Second => s_proc.next_adaa(input),
+                        }
+                    };
 
                 self.over_sample_process_buf
                     .iter_mut()
                     .take(num_processed_samples)
                     .for_each(|sample| {
                         *sample *= gain;
-                        *sample = match order {
-                            AntiderivativeOrder::First => first_order_proc.next_adaa(&sample),
-                            AntiderivativeOrder::Second => second_order_proc.next_adaa(&sample),
-                        };
-
-                        max_processed = if sample.abs() > max_processed {
-                            sample.abs()
-                        } else {
-                            max_processed
-                        };
-
+                        // *sample = match order {
+                        // AntiderivativeOrder::First => first_order_proc.next_adaa(&sample),
+                        // AntiderivativeOrder::Second => second_order_proc.next_adaa(&sample),
+                        // };
+                        *sample = proc(sample, first_order_proc, second_order_proc);
                         *sample *= output;
                     });
-
-                if max_processed > 1.0 {
-                    self.over_sample_process_buf
-                        .iter_mut()
-                        .for_each(|x| *x /= max_processed);
-                }
-
                 oversampler.process_down(&self.over_sample_process_buf, block_channel);
             }
         }
@@ -329,7 +328,7 @@ impl Vst3Plugin for NonlinearAdaa {
 
     // And also don't forget to change these categories
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Fx, Vst3SubCategory::Dynamics];
+        &[Vst3SubCategory::Fx, Vst3SubCategory::Custom("Harmonics")];
 }
 
 nih_export_clap!(NonlinearAdaa);

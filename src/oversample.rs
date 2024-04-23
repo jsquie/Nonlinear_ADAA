@@ -2,41 +2,15 @@ use core::panic;
 
 use crate::oversample::os_filter_constants::FILTER_TAPS;
 use crate::oversample::oversample_stage::OversampleStage;
-use ndarray::Array1;
 use nih_plug::prelude::*;
 use num_traits::Float;
+
+use self::os_filter_constants::NUM_OS_FILTER_TAPS;
 
 mod os_filter_constants;
 mod oversample_stage;
 
 const MAX_OVER_SAMPLE_FACTOR: u32 = 4;
-
-/*
-#[derive(Debug, Clone, Copy)]
-pub struct OSFactorScale {
-    factor: u32,
-    scale: u32,
-}
-
-impl OSFactorScale {
-    pub const TWO_TIMES: OSFactorScale = OSFactorScale {
-        factor: 1,
-        scale: 2,
-    };
-    pub const FOUR_TIMES: OSFactorScale = OSFactorScale {
-        factor: 2,
-        scale: 2_u32.pow(2),
-    };
-    pub const EIGHT_TIMES: OSFactorScale = OSFactorScale {
-        factor: 3,
-        scale: 2_u32.pow(3),
-    };
-    pub const SIXTEEN_TIMES: OSFactorScale = OSFactorScale {
-        factor: 4,
-        scale: 2_u32.pow(4),
-    };
-}
-*/
 
 #[derive(Enum, Debug, Copy, Clone, PartialEq)]
 pub enum OversampleFactor {
@@ -67,7 +41,7 @@ where
     factor: OversampleFactor,
     up_stages: Vec<OversampleStage<T>>,
     down_stages: Vec<OversampleStage<T>>,
-    kernel: Array1<T>,
+    kernel: [T; NUM_OS_FILTER_TAPS],
 }
 
 impl<T> Oversample<T>
@@ -93,7 +67,13 @@ where
                     )
                 })
                 .collect::<Vec<_>>(),
-            kernel: Array1::from_iter(FILTER_TAPS.into_iter().map(|x| (x as f32).into())),
+            kernel: {
+                let mut zerod = [0.0_f32.into(); NUM_OS_FILTER_TAPS];
+                for (idx, i) in FILTER_TAPS.iter().map(|x| *x as f32).enumerate() {
+                    zerod[idx] = i.into();
+                }
+                zerod.to_owned()
+            },
         }
     }
 
