@@ -1,4 +1,5 @@
 use adaa::NextAdaa;
+use iir_biquad_filter::{FilterOrder, IIRBiquadFilter};
 use nih_plug::prelude::*;
 use nih_plug_vizia::ViziaState;
 use oversampler::{Oversample, OversampleFactor};
@@ -6,7 +7,6 @@ use std::sync::Arc;
 
 mod adaa;
 mod editor;
-mod iir_biquad_filter;
 
 const MAX_BLOCK_SIZE: usize = 32;
 const MAX_OS_FACTOR_SCALE: usize = 16;
@@ -30,8 +30,7 @@ pub struct NonlinearAdaa {
     proc_order: AntiderivativeOrder,
     oversamplers: Vec<Oversample>,
     over_sample_process_buf: [f32; MAX_BLOCK_SIZE * MAX_OS_FACTOR_SCALE],
-    pre_filters: [iir_biquad_filter::IIRBiquadFilter; 2],
-    pre_filter_cutoff: f32,
+    pre_filters: [IIRBiquadFilter; 2],
 }
 
 #[derive(Params)]
@@ -66,11 +65,7 @@ impl Default for NonlinearAdaa {
             proc_order: AntiderivativeOrder::First,
             oversamplers: Vec::with_capacity(2),
             over_sample_process_buf: [0.0; MAX_OS_FACTOR_SCALE * MAX_BLOCK_SIZE],
-            pre_filters: [
-                iir_biquad_filter::IIRBiquadFilter::new(),
-                iir_biquad_filter::IIRBiquadFilter::new(),
-            ],
-            pre_filter_cutoff: 1000.0,
+            pre_filters: [IIRBiquadFilter::new(), IIRBiquadFilter::new()],
         }
     }
 }
@@ -202,16 +197,20 @@ impl Plugin for NonlinearAdaa {
             Oversample::new(self.params.os_level.value(), MAX_BLOCK_SIZE as u32)
         });
 
+        self.oversamplers
+            .iter_mut()
+            .for_each(|os| os.initialize_oversample_stages());
+
         self.pre_filters[0].init(
             &buffer_config.sample_rate,
             &self.params.pre_filter_cutoff.value(),
-            iir_biquad_filter::FilterOrder::First,
+            FilterOrder::First,
         );
 
         self.pre_filters[1].init(
             &buffer_config.sample_rate,
             &self.params.pre_filter_cutoff.value(),
-            iir_biquad_filter::FilterOrder::First,
+            FilterOrder::First,
         );
 
         // Resize buffers and perform other potentially expensive initialization operations here.

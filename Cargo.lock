@@ -7,6 +7,7 @@ name = "Nonlinear_ADAA"
 version = "0.1.0"
 dependencies = [
  "circular_buffer",
+ "iir_biquad_filter",
  "nih_plug",
  "nih_plug_vizia",
  "num-traits",
@@ -1053,6 +1054,10 @@ checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
 dependencies = [
  "cc",
 ]
+
+[[package]]
+name = "iir_biquad_filter"
+version = "0.1.0"
 
 [[package]]
 name = "image"

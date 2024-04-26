@@ -19,6 +19,7 @@ crate-type = ["cdylib", "lib"]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }
 circular_buffer = { path = "../circular_buffer" }
 oversampler = { path = "../oversampler" }
+iir_biquad_filter = { path = "../iir_biquad_filter" }
 polylog = "2.6.0"
 # ndarray = "0.15.6"
 # ndarray-rand = "0.14.0"
@@ -35,7 +36,7 @@ nih_plug_vizia = { path = "nih_plug_vizia" }
 
 [profile.release]
 lto = "fat"
-strip = "debuginfo"
+strip = "none"
 codegen-units = 1 
 
 [profile.profiling]
