@@ -1,13 +1,12 @@
-use adaa::{ADAAFirst, NextAdaa};
+use adaa::NextAdaa;
 use nih_plug::prelude::*;
 use nih_plug_vizia::ViziaState;
+use oversampler::{Oversample, OversampleFactor};
 use std::sync::Arc;
 
 mod adaa;
-mod circular_buffer;
 mod editor;
 mod iir_biquad_filter;
-mod oversample;
 
 const MAX_BLOCK_SIZE: usize = 32;
 const MAX_OS_FACTOR_SCALE: usize = 16;
@@ -29,7 +28,7 @@ pub struct NonlinearAdaa {
     second_order_nlprocs: Vec<adaa::ADAASecond>,
     proc_style: adaa::NLProc,
     proc_order: AntiderivativeOrder,
-    oversamplers: Vec<oversample::Oversample<f32>>,
+    oversamplers: Vec<Oversample>,
     over_sample_process_buf: [f32; MAX_BLOCK_SIZE * MAX_OS_FACTOR_SCALE],
     pre_filters: [iir_biquad_filter::IIRBiquadFilter; 2],
     pre_filter_cutoff: f32,
@@ -50,7 +49,7 @@ pub struct NonlinearAdaaParams {
     #[id = "ad level"]
     pub nl_proc_order: EnumParam<AntiderivativeOrder>,
     #[id = "os level"]
-    pub os_level: EnumParam<oversample::OversampleFactor>,
+    pub os_level: EnumParam<OversampleFactor>,
     #[id = "pre filter cutoff"]
     pub pre_filter_cutoff: FloatParam,
     #[persist = "editor-state"]
@@ -115,7 +114,7 @@ impl Default for NonlinearAdaaParams {
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
             nl_proc_type: EnumParam::new("Nonlinear Process", adaa::NLProc::HardClip),
             nl_proc_order: EnumParam::new("Antiderivative Order", AntiderivativeOrder::First),
-            os_level: EnumParam::new("Oversample Factor", oversample::OversampleFactor::TwoTimes),
+            os_level: EnumParam::new("Oversample Factor", OversampleFactor::TwoTimes),
             pre_filter_cutoff: FloatParam::new(
                 "Prefilter Cutoff Frequency",
                 700.0,
@@ -200,7 +199,7 @@ impl Plugin for NonlinearAdaa {
             .resize_with(num_channels, || adaa::ADAASecond::new(self.proc_style));
 
         self.oversamplers.resize_with(num_channels, || {
-            oversample::Oversample::new(self.params.os_level.value(), MAX_BLOCK_SIZE as u32)
+            Oversample::new(self.params.os_level.value(), MAX_BLOCK_SIZE as u32)
         });
 
         self.pre_filters[0].init(
@@ -299,14 +298,10 @@ impl Plugin for NonlinearAdaa {
                     .take(num_processed_samples)
                     .for_each(|sample| {
                         *sample *= gain;
-                        // *sample = match order {
-                        // AntiderivativeOrder::First => first_order_proc.next_adaa(&sample),
-                        // AntiderivativeOrder::Second => second_order_proc.next_adaa(&sample),
-                        // };
                         *sample = proc(sample, first_order_proc, second_order_proc);
                         *sample *= output;
                     });
-                oversampler.process_down(&self.over_sample_process_buf, block_channel);
+                oversampler.process_down(&mut self.over_sample_process_buf, block_channel);
             }
         }
         ProcessStatus::Normal

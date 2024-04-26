@@ -17,6 +17,8 @@ crate-type = ["cdylib", "lib"]
 # Remove the `assert_process_allocs` feature to allow allocations on the audio
 # thread in debug builds.
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }
+circular_buffer = { path = "../circular_buffer" }
+oversampler = { path = "../oversampler" }
 polylog = "2.6.0"
 # ndarray = "0.15.6"
 # ndarray-rand = "0.14.0"
