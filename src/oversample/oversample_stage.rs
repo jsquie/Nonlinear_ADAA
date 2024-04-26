@@ -42,6 +42,10 @@ where
     pub fn process_up(&mut self, input: &[T], kernel: &[T]) {
         let mut output = self.data.iter_mut();
 
+        self.filter_buff.convolve(input);
+        self.delay_buff
+            .delay(input * 2.0_f32.into() * FOLD_SCALE_32.into());
+
         input.iter().for_each(|x| {
             match output.next() {
                 Some(out) => *out = self.filter_buff.convolve(*x, kernel) * 2.0_f32.into(),

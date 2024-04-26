@@ -24,7 +24,7 @@ num-traits = "0.2.14"
 # blas-src = { version = "0.8", features = ["accelerate"] }
 nih_plug_vizia = { path = "nih_plug_vizia" }
 
-atomic_float = "0.1"
+# atomic_float = "0.1"
 # openblas-src = { version = "0.10", features = ["cblas", "system"]}
 
 # Uncomment the below line to disable the on-by-default VST3 feature to remove
@@ -32,9 +32,9 @@ atomic_float = "0.1"
 # nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default_features = false, features = ["assert_process_allocs"] }
 
 [profile.release]
-lto = "thin"
-strip = "symbols"
-codegen-units = 3
+lto = "fat"
+strip = "debuginfo"
+codegen-units = 1 
 
 [profile.profiling]
 inherits = "release"
