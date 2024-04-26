@@ -21,7 +21,6 @@ pub enum AntiderivativeOrder {
     #[name = "Second Order"]
     Second,
 }
-
 pub struct NonlinearAdaa {
     params: Arc<NonlinearAdaaParams>,
     first_order_nlprocs: Vec<adaa::ADAAFirst>,
@@ -112,14 +111,14 @@ impl Default for NonlinearAdaaParams {
             os_level: EnumParam::new("Oversample Factor", OversampleFactor::TwoTimes),
             pre_filter_cutoff: FloatParam::new(
                 "Prefilter Cutoff Frequency",
-                700.0,
+                20000.0,
                 FloatRange::Skewed {
                     min: 100.,
                     max: 22000.0,
                     factor: FloatRange::skew_factor(-1.0),
                 },
             )
-            .with_smoother(SmoothingStyle::Logarithmic(100.0))
+            .with_smoother(SmoothingStyle::Logarithmic(10.0))
             .with_value_to_string(formatters::v2s_f32_hz_then_khz(0))
             .with_string_to_value(formatters::s2v_f32_hz_then_khz()),
         }

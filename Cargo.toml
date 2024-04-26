@@ -36,7 +36,7 @@ nih_plug_vizia = { path = "nih_plug_vizia" }
 
 [profile.release]
 lto = "fat"
-strip = "none"
+strip = "symbols"
 codegen-units = 1 
 
 [profile.profiling]
