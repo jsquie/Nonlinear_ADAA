@@ -193,7 +193,7 @@ impl Plugin for NonlinearAdaa {
             .resize_with(num_channels, || adaa::ADAASecond::new(self.proc_style));
 
         self.oversamplers.resize_with(num_channels, || {
-            Oversample::new(self.params.os_level.value(), MAX_BLOCK_SIZE as u32)
+            Oversample::new(self.params.os_level.value(), MAX_BLOCK_SIZE)
         });
 
         self.oversamplers
@@ -266,8 +266,7 @@ impl Plugin for NonlinearAdaa {
 
                 filter.process_block(block_channel);
 
-                let num_processed_samples =
-                    oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
+                oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
 
                 let gain = self.params.gain.smoothed.next();
                 let output = self.params.output.smoothed.next();
@@ -293,7 +292,7 @@ impl Plugin for NonlinearAdaa {
 
                 self.over_sample_process_buf
                     .iter_mut()
-                    .take(num_processed_samples)
+                    .take(oversampler.get_oversample_factor() as usize * MAX_BLOCK_SIZE)
                     .for_each(|sample| {
                         *sample *= gain;
                         *sample = proc(sample, first_order_proc, second_order_proc);
