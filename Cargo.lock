@@ -6,13 +6,13 @@ version = 3
 name = "Nonlinear_ADAA"
 version = "0.1.0"
 dependencies = [
+ "adaa_nl",
  "circular_buffer",
  "iir_biquad_filter",
  "nih_plug",
  "nih_plug_vizia",
  "num-traits",
  "oversampler",
- "polylog",
 ]
 
 [[package]]
@@ -26,6 +26,14 @@ name = "accesskit"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76eb1adf08c5bcaa8490b9851fd53cca27fa9880076f178ea9d29f05196728a8"
+
+[[package]]
+name = "adaa_nl"
+version = "0.1.0"
+dependencies = [
+ "nih_plug",
+ "polylog",
+]
 
 [[package]]
 name = "addr2line"

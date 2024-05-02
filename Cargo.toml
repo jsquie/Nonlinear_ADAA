@@ -20,7 +20,7 @@ nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["a
 circular_buffer = { path = "../circular_buffer" }
 oversampler = { path = "../oversampler" }
 iir_biquad_filter = { path = "../iir_biquad_filter" }
-polylog = "2.6.0"
+adaa_nl = { path = "../adaa_nl" }
 # ndarray = "0.15.6"
 # ndarray-rand = "0.14.0"
 num-traits = "0.2.14"
