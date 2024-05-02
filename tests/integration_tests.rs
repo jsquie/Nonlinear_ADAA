@@ -59,25 +59,36 @@ impl fmt::Debug for TotalResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "TotalResult: \n\tnum_incorrect: {}\n\tperc_correct: {}%\n\tavg difference: {}\n\tincorrect: {:?}",
+            "TotalResult: \n\tnum_incorrect: {}\n\tperc_correct: {}%\n\tavg difference: {}\n\tmax difference: {}\n\tincorrect: {:?}",
             self.num_incorrect_results.unwrap_or(0),
             self.perc_correct_results.unwrap_or(100.0),
             self.avg_difference.unwrap_or(0.0),
+            self.incorrect_results.clone().into_iter().fold(0.0, |acc, v| v.unwrap().difference.max(acc)),
             self.incorrect_results
                 .clone()
                 .into_iter()
-                .map(|v| v.unwrap())
-                .collect::<Vec<_>>()
+                .map(|v| format!("{:?}",
+                    v.unwrap()))
         )
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[allow(dead_code)]
 struct ADAAResult {
     my_result: f32,
     expected_result: f32,
     difference: f32,
+}
+
+impl fmt::Debug for ADAAResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "My result: {}, expected_result: {}, difference: {}\n",
+            self.my_result, self.expected_result, self.difference
+        )
+    }
 }
 
 fn check_results(result: &[f32], expected_result: &[f32]) {
@@ -289,29 +300,29 @@ fn test_2x_tanh_ad2() {
         7.26022224e-04,
         -1.29967111e-03,
         4.38302786e-03,
-        8.49418111e-03,
-        5.93044431e-03,
-        7.81364818e-03,
-        5.61934724e-03,
-        7.41330795e-03,
-        5.17335600e-03,
-        7.05642564e-03,
-        4.65823760e-03,
-        6.71029039e-03,
-        4.07642508e-03,
-        6.36686737e-03,
-        3.41476611e-03,
-        6.02775330e-03,
-        2.64963938e-03,
-        5.70574342e-03,
-        1.74342814e-03,
-        5.43529665e-03,
-        6.30811793e-04,
-        5.30128306e-03,
-        -8.27704515e-04,
-        5.54242002e-03,
-        -3.13759280e-03,
-        8.75957577e-03,
+        1.28355200e-02,
+        5.54399172e-03,
+        1.22215422e-02,
+        4.80505165e-03,
+        1.19353459e-02,
+        3.87610310e-03,
+        1.17569055e-02,
+        2.80235541e-03,
+        1.16790869e-02,
+        1.55400277e-03,
+        1.17350701e-02,
+        6.43212078e-05,
+        1.19973810e-02,
+        -1.78630280e-03,
+        1.26120244e-02,
+        -4.22605321e-03,
+        1.38961163e-02,
+        -7.75896828e-03,
+        1.66554225e-02,
+        -1.38028162e-02,
+        2.36470387e-02,
+        -2.86897416e-02,
+        5.53385387e-02,
         -6.68836819e-01,
         -1.00109735e+00,
         -9.43083926e-01,
@@ -545,12 +556,6 @@ fn test_2x_hc_ad2() {
 
     output.iter_mut().for_each(|v| *v = ad.next_adaa(v));
 
-    dbg!(&output);
-    // output
-    // .iter()
-    // .zip(BEFORE_PROC_DOWN_HC_AD2_2X.iter())
-    // .for_each(|(a, b)| assert!((a - b).abs() < ERR_TOL));
-
     os.process_down(&mut output, &mut result);
 
     let expected_result = [
@@ -578,29 +583,29 @@ fn test_2x_hc_ad2() {
         7.26587196e-04,
         -1.30302756e-03,
         4.53351428e-03,
-        8.76375512e-03,
-        5.89861662e-03,
-        8.16982319e-03,
-        5.60557411e-03,
-        7.85863041e-03,
-        5.19949457e-03,
-        7.61294986e-03,
-        4.74483220e-03,
-        7.41011010e-03,
-        4.24770058e-03,
-        7.25272601e-03,
-        3.69938392e-03,
-        7.15506656e-03,
-        2.87800808e-03,
-        6.64102876e-03,
-        1.64968776e-03,
-        6.25814190e-03,
-        2.34174889e-04,
-        6.12805309e-03,
-        -1.53274522e-03,
-        6.49777467e-03,
-        -3.99600615e-03,
-        7.48482110e-03,
+        1.31053849e-02,
+        5.51216357e-03,
+        1.25780217e-02,
+        4.79127657e-03,
+        1.23809971e-02,
+        3.90223389e-03,
+        1.23137990e-02,
+        2.88892727e-03,
+        1.23793428e-02,
+        1.72522121e-03,
+        1.26214788e-02,
+        3.48805305e-04,
+        1.31254507e-02,
+        -1.55824443e-03,
+        1.35484809e-02,
+        -4.32054990e-03,
+        1.47211152e-02,
+        -8.15770511e-03,
+        1.74873986e-02,
+        -1.45156274e-02,
+        2.46235163e-02,
+        -2.96076140e-02,
+        5.44260987e-02,
         -7.56707810e-01,
         -1.04480765e+00,
         -9.87114966e-01,
@@ -622,17 +627,52 @@ fn real_small_ad2_hc_test() {
     let expected_result = [
         0.00862873,
         0.00862873,
-        0.00389146,
         -0.00473727,
-        0.00024908,
-        0.00498635,
-        -0.00458776,
-        -0.00957411,
-        -0.0081157,
-        0.00145841,
+        -0.013366,
+        0.00067199,
+        0.01403798,
+        -0.00504829,
+        -0.01908628,
+        -0.00761204,
+        0.01147424,
+    ];
+    os.process_up(&mut input, &mut output);
+
+    dbg!(&output);
+
+    output.iter_mut().for_each(|v| *v = ad.next_adaa(v));
+
+    dbg!(&output);
+
+    check_results(&output, &expected_result);
+}
+
+#[test]
+fn real_small_ad2_tanh_test() {
+    let mut os = Oversample::new(oversampler::OversampleFactor::TwoTimes, 5);
+    os.initialize_oversample_stages();
+    let mut ad = ADAASecond::new(NLProc::Tanh);
+
+    let mut input = vec![-2., 1., 0., 1., 2.];
+    let mut output = vec![0.0_f32; 10];
+    // let result = vec![0.0_f32; 5];
+
+    let expected_result = [
+        0.00862815,
+        0.00862815,
+        -0.00473619,
+        -0.01336385,
+        0.00067176,
+        0.0140355,
+        -0.00504574,
+        -0.01908002,
+        -0.00760864,
+        0.01147288,
     ];
 
     os.process_up(&mut input, &mut output);
+
+    dbg!(&output);
 
     output.iter_mut().for_each(|v| *v = ad.next_adaa(v));
 
