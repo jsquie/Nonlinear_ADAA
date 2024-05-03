@@ -26,14 +26,13 @@ pub struct NonlinearAdaa {
     params: Arc<NonlinearAdaaParams>,
     first_order_nlprocs: Vec<ADAAFirst>,
     second_order_nlprocs: Vec<ADAASecond>,
-    proc_style: Arc<AtomicBool>,
     proc_order: AntiderivativeOrder,
     oversamplers: Vec<Oversample>,
     over_sample_process_buf: [f32; MAX_BLOCK_SIZE * MAX_OS_FACTOR_SCALE],
     pre_filters: [IIRBiquadFilter; 2],
 }
 
-#[derive(Params)]
+#[derive(Params, Debug)]
 pub struct NonlinearAdaaParams {
     /// The parameter's ID is used to identify the parameter in the wrappred plugin API. As long as
     /// these IDs remain constant, you can rename and reorder these fields as you wish. The
@@ -57,13 +56,10 @@ pub struct NonlinearAdaaParams {
 
 impl Default for NonlinearAdaa {
     fn default() -> Self {
-        let should_update_proc_style = Arc::new(AtomicBool::new(true));
-
         Self {
-            params: Arc::new(NonlinearAdaaParams::new(should_update_proc_style.clone())),
+            params: Arc::new(NonlinearAdaaParams::default()),
             first_order_nlprocs: Vec::with_capacity(2),
             second_order_nlprocs: Vec::with_capacity(2),
-            proc_style: should_update_proc_style,
             proc_order: AntiderivativeOrder::First,
             oversamplers: Vec::with_capacity(2),
             over_sample_process_buf: [0.0; MAX_OS_FACTOR_SCALE * MAX_BLOCK_SIZE],
@@ -72,8 +68,12 @@ impl Default for NonlinearAdaa {
     }
 }
 
-impl NonlinearAdaaParams {
-    fn new(should_update_proc_style: Arc<AtomicBool>) -> Self {
+impl Default for NonlinearAdaaParams {
+    fn default() -> Self {
+        let oversampling_times = Arc::new(AtomicF32::new(oversampling_factor_to_times(
+            OversampleFactor::TwoTimes,
+        )));
+
         Self {
             // This gain is stored as linear gain. NIH-plug comes with useful conversion functions
             // to treat these kinds of parameters as if we were dealing with decibels. Storing this
@@ -91,7 +91,10 @@ impl NonlinearAdaaParams {
                     factor: FloatRange::gain_skew_factor(-30.0, 30.0),
                 },
             )
-            .with_smoother(SmoothingStyle::Logarithmic(5.0))
+            .with_smoother(SmoothingStyle::OversamplingAware(
+                oversampling_times.clone(),
+                &SmoothingStyle::Logarithmic(1000.0),
+            ))
             .with_unit(" dB")
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
@@ -109,18 +112,23 @@ impl NonlinearAdaaParams {
             // The value does not go down to 0 so we can do logarithmic here
             .with_smoother(SmoothingStyle::Logarithmic(5.0))
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
-            .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+            .with_string_to_value(formatters::s2v_f32_gain_to_db())
+            .with_smoother(SmoothingStyle::OversamplingAware(
+                oversampling_times.clone(),
+                &SmoothingStyle::Logarithmic(5.0),
+            )),
 
-            nl_proc_type: EnumParam::new("Nonlinear Process", NLProc::HardClip).with_callback(
-                Arc::new(move |new_proc_style| match new_proc_style {
-                    NLProc::HardClip => should_update_proc_style.store(true, Ordering::Relaxed),
-                    NLProc::Tanh => should_update_proc_style.store(false, Ordering::Relaxed),
-                }),
-            ),
+            nl_proc_type: EnumParam::new("Nonlinear Process", NLProc::HardClip),
 
             nl_proc_order: EnumParam::new("Antiderivative Order", AntiderivativeOrder::First),
 
-            os_level: EnumParam::new("Oversample Factor", OversampleFactor::TwoTimes),
+            os_level: EnumParam::new("Oversample Factor", OversampleFactor::TwoTimes)
+                .with_callback(Arc::new(move |new_factor| {
+                    oversampling_times.store(
+                        oversampling_factor_to_times(new_factor) as f32,
+                        Ordering::Relaxed,
+                    );
+                })),
 
             pre_filter_cutoff: FloatParam::new(
                 "Prefilter Cutoff Frequency",
@@ -135,6 +143,15 @@ impl NonlinearAdaaParams {
             .with_value_to_string(formatters::v2s_f32_hz_then_khz(0))
             .with_string_to_value(formatters::s2v_f32_hz_then_khz()),
         }
+    }
+}
+
+fn oversampling_factor_to_times(factor: OversampleFactor) -> f32 {
+    match factor {
+        OversampleFactor::TwoTimes => 2.0,
+        OversampleFactor::FourTimes => 4.0,
+        OversampleFactor::EightTimes => 8.0,
+        OversampleFactor::SixteenTimes => 16.0,
     }
 }
 
@@ -281,8 +298,6 @@ impl Plugin for NonlinearAdaa {
 
                 oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
 
-                let gain = self.params.gain.smoothed.next();
-                let output = self.params.output.smoothed.next();
                 let order = self.params.nl_proc_order.value();
                 let style = self.params.nl_proc_type.value();
 
@@ -293,22 +308,41 @@ impl Plugin for NonlinearAdaa {
                     self.proc_order = order;
                 }
 
-                let proc: &mut dyn NextAdaa = match self.proc_order {
-                    AntiderivativeOrder::First => first_order_proc,
-                    AntiderivativeOrder::Second => second_order_proc,
+                match self.proc_order {
+                    AntiderivativeOrder::First => {
+                        self.over_sample_process_buf
+                            .iter_mut()
+                            .take(
+                                2_u32.pow(oversampler.get_oversample_factor() as u32) as usize
+                                    * MAX_BLOCK_SIZE,
+                            )
+                            .for_each(|sample| {
+                                let gain = self.params.gain.smoothed.next();
+                                let output = self.params.output.smoothed.next();
+
+                                *sample *= gain;
+                                *sample = first_order_proc.next_adaa(sample);
+                                *sample *= output;
+                            });
+                    }
+                    AntiderivativeOrder::Second => {
+                        self.over_sample_process_buf
+                            .iter_mut()
+                            .take(
+                                2_u32.pow(oversampler.get_oversample_factor() as u32) as usize
+                                    * MAX_BLOCK_SIZE,
+                            )
+                            .for_each(|sample| {
+                                let gain = self.params.gain.smoothed.next();
+                                let output = self.params.output.smoothed.next();
+
+                                *sample *= gain;
+                                *sample = second_order_proc.next_adaa(sample);
+                                *sample *= output;
+                            });
+                    }
                 };
 
-                self.over_sample_process_buf
-                    .iter_mut()
-                    .take(
-                        2_u32.pow(oversampler.get_oversample_factor() as u32) as usize
-                            * MAX_BLOCK_SIZE,
-                    )
-                    .for_each(|sample| {
-                        *sample *= gain;
-                        *sample = proc.next_adaa(sample);
-                        *sample *= output;
-                    });
                 oversampler.process_down(&mut self.over_sample_process_buf, block_channel);
             }
         }
