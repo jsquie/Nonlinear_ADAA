@@ -1,16 +1,16 @@
 use core::fmt;
 
+use std::error::Error;
+use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
+
+use serde::Deserialize;
+
 use adaa_nl::{ADAAFirst, ADAASecond, NLProc, NextAdaa};
 use oversampler::{Oversample, OversampleFactor};
-// use std::fmt;
 
 const ERR_TOL: f32 = 1e-5;
-const INPUT_LINSPACE: [f32; 50] = [
-    -2., -1.92, -1.84, -1.76, -1.68, -1.6, -1.52, -1.44, -1.36, -1.28, -1.2, -1.12, -1.04, -0.96,
-    -0.88, -0.8, -0.72, -0.64, -0.56, -0.48, -0.4, -0.32, -0.24, -0.16, -0.08, 0., 0.08, 0.16,
-    0.24, 0.32, 0.4, 0.48, 0.56, 0.64, 0.72, 0.8, 0.88, 0.96, 1.04, 1.12, 1.2, 1.28, 1.36, 1.44,
-    1.52, 1.6, 1.68, 1.76, 1.84, 1.92,
-];
 
 #[allow(dead_code)]
 struct TotalResult {
@@ -115,568 +115,135 @@ fn check_results(result: &[f32], expected_result: &[f32]) {
     assert!(total.num_incorrect_results.unwrap_or(0) == 0, "{:?}", total);
 }
 
-#[test]
-fn test_2x_tanh_ad1() {
-    let mut os = Oversample::new(OversampleFactor::TwoTimes, 50);
-    os.initialize_oversample_stages();
-    let mut ad = ADAAFirst::new(NLProc::Tanh);
+#[derive(Deserialize, Debug)]
+struct TestCase {
+    name: String,
+    input: Vec<f32>,
+    expected_output: Vec<f32>,
+}
 
-    let mut input = INPUT_LINSPACE.into_iter().collect::<Vec<f32>>();
-    let mut output = vec![0.0_f32; 100];
-    let mut result = vec![0.0_f32; 50];
+fn read_test_case_from_file<P: AsRef<Path>>(path: P) -> Result<TestCase, Box<dyn Error>> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
 
-    os.process_up(&mut input, &mut output);
+    let u = serde_json::from_reader(reader)?;
 
-    output.iter_mut().for_each(|v| *v = ad.next_adaa(v));
-
-    os.process_down(&mut output, &mut result);
-
-    let expected_result = [
-        -8.37524987e-05,
-        9.53130214e-05,
-        -1.85184844e-04,
-        2.10349100e-04,
-        -3.08702555e-04,
-        3.50218482e-04,
-        -4.60270240e-04,
-        5.21931183e-04,
-        -6.48190026e-04,
-        7.35405078e-04,
-        -8.84426438e-04,
-        1.00523661e-03,
-        -1.18701881e-03,
-        1.35406144e-03,
-        -1.58488604e-03,
-        1.81963923e-03,
-        -2.12866802e-03,
-        2.47221911e-03,
-        -2.92018602e-03,
-        3.46842130e-03,
-        -4.22168631e-03,
-        5.30953197e-03,
-        -7.25221869e-03,
-        1.36083531e-02,
-        5.93171609e-03,
-        1.16999918e-02,
-        6.21446411e-03,
-        1.05115703e-02,
-        6.16982060e-03,
-        9.45500925e-03,
-        6.03230605e-03,
-        8.39456926e-03,
-        5.88347616e-03,
-        7.25222845e-03,
-        5.78284952e-03,
-        5.94749520e-03,
-        5.80803752e-03,
-        4.36126025e-03,
-        6.10102565e-03,
-        2.26990644e-03,
-        6.98031132e-03,
-        -8.50832745e-04,
-        9.32679170e-03,
-        -6.64347376e-03,
-        1.65802841e-02,
-        -2.38267832e-02,
-        6.16836944e-02,
-        -8.65570774e-01,
-        -9.69691757e-01,
-        -9.62953779e-01,
-    ];
-
-    check_results(&result, &expected_result)
+    Ok(u)
 }
 
 #[test]
-fn test_2x_hc_ad1() {
-    let mut os = Oversample::new(oversampler::OversampleFactor::TwoTimes, 50);
+fn test_2x_tanh_ad1() {
+    let mut os = Oversample::new(OversampleFactor::TwoTimes, 32);
     os.initialize_oversample_stages();
-    let mut ad = ADAAFirst::new(NLProc::HardClip);
+    let mut ad = ADAAFirst::new(NLProc::Tanh);
 
-    let mut input = INPUT_LINSPACE.into_iter().collect::<Vec<f32>>();
-    let mut output = vec![0.0_f32; 100];
-    let mut result = vec![0.0_f32; 50];
+    let mut test_case = read_test_case_from_file("./tests/json_test_data/tanh_2x_ad1.json")
+        .expect("File path incorrect");
+    let mut output = vec![0.0_f32; 64];
+    let mut result = vec![0.0_f32; 32];
 
-    os.process_up(&mut input, &mut output);
+    os.process_up(&mut test_case.input, &mut output);
 
-    output.iter_mut().for_each(|v| *v = ad.next_adaa(v));
+    output
+        .iter_mut()
+        .for_each(|v| *v = ad.next_adaa(&(*v * 10.0)));
 
     os.process_down(&mut output, &mut result);
 
-    let expected_result = [
-        -8.37618518e-05,
-        9.53228395e-05,
-        -1.85204951e-04,
-        2.10370295e-04,
-        -3.08735446e-04,
-        3.50253378e-04,
-        -4.60318953e-04,
-        5.21983359e-04,
-        -6.48259288e-04,
-        7.35480276e-04,
-        -8.84523991e-04,
-        1.00534458e-03,
-        -1.18715822e-03,
-        1.35422011e-03,
-        -1.58509346e-03,
-        1.81988561e-03,
-        -2.12900183e-03,
-        2.47264524e-03,
-        -2.92081231e-03,
-        3.46934537e-03,
-        -4.22336087e-03,
-        5.31324166e-03,
-        -7.26778300e-03,
-        1.40675297e-02,
-        5.63224570e-03,
-        1.23404752e-02,
-        5.83425852e-03,
-        1.13250231e-02,
-        5.72864590e-03,
-        1.04702209e-02,
-        5.53523990e-03,
-        9.65903050e-03,
-        5.32998911e-03,
-        8.83287005e-03,
-        5.16595443e-03,
-        7.93637196e-03,
-        5.10789400e-03,
-        6.48343541e-03,
-        4.91195684e-03,
-        4.46281948e-03,
-        5.17844915e-03,
-        1.73209346e-03,
-        6.58673731e-03,
-        -2.96279772e-03,
-        1.17281989e-02,
-        -1.59614215e-02,
-        4.15053490e-02,
-        -9.45509002e-01,
-        -1.00071620e+00,
-        -1.01696761e+00,
-    ];
+    check_results(&result, &test_case.expected_output);
+}
 
-    check_results(&result, &expected_result)
+fn run_test_case(ad: &mut impl NextAdaa, factor: OversampleFactor, size: usize, file_name: &str) {
+    let mut os = Oversample::new(factor, size);
+    os.initialize_oversample_stages();
+
+    let mut test_case = read_test_case_from_file(file_name).expect("File not found");
+
+    let mut output = match factor {
+        OversampleFactor::TwoTimes => vec![0.0_f32; size * (2_u32.pow(1) as usize)],
+        OversampleFactor::FourTimes => vec![0.0_f32; size * (2_u32.pow(2) as usize)],
+        OversampleFactor::EightTimes => vec![0.0_f32; size * (2_u32.pow(3) as usize)],
+        OversampleFactor::SixteenTimes => vec![0.0_f32; size * (2_u32.pow(4) as usize)],
+    };
+    let mut result = vec![0.0_f32; size];
+
+    os.process_up(&mut test_case.input, &mut output);
+
+    output
+        .iter_mut()
+        .for_each(|v| *v = ad.next_adaa(&(*v * 10.0)));
+
+    os.process_down(&mut output, &mut result);
+
+    check_results(&result, &test_case.expected_output);
 }
 
 #[test]
 fn test_2x_tanh_ad2() {
-    let mut os = Oversample::new(oversampler::OversampleFactor::TwoTimes, 50);
-    os.initialize_oversample_stages();
-    let mut ad = ADAASecond::new(NLProc::Tanh);
-
-    let mut input = INPUT_LINSPACE.into_iter().collect::<Vec<f32>>();
-    let mut output = vec![0.0_f32; 100];
-    let mut result = vec![0.0_f32; 50];
-
-    os.process_up(&mut input, &mut output);
-
-    output.iter_mut().for_each(|v| *v = ad.next_adaa(v));
-
-    os.process_down(&mut output, &mut result);
-
-    let expected_result = [
-        -5.58374931e-05,
-        7.70683551e-06,
-        -5.99172866e-05,
-        1.67758650e-05,
-        -6.55720877e-05,
-        2.76769508e-05,
-        -7.33715585e-05,
-        4.11071171e-05,
-        -8.41772690e-05,
-        5.81436996e-05,
-        -9.93539731e-05,
-        8.05416813e-05,
-        -1.21197620e-04,
-        1.11366172e-04,
-        -1.53898741e-04,
-        1.56513526e-04,
-        -2.06049273e-04,
-        2.29065492e-04,
-        -2.98717963e-04,
-        3.65601375e-04,
-        -5.02464986e-04,
-        7.26022224e-04,
-        -1.29967111e-03,
-        4.38302786e-03,
-        1.28355200e-02,
-        5.54399172e-03,
-        1.22215422e-02,
-        4.80505165e-03,
-        1.19353459e-02,
-        3.87610310e-03,
-        1.17569055e-02,
-        2.80235541e-03,
-        1.16790869e-02,
-        1.55400277e-03,
-        1.17350701e-02,
-        6.43212078e-05,
-        1.19973810e-02,
-        -1.78630280e-03,
-        1.26120244e-02,
-        -4.22605321e-03,
-        1.38961163e-02,
-        -7.75896828e-03,
-        1.66554225e-02,
-        -1.38028162e-02,
-        2.36470387e-02,
-        -2.86897416e-02,
-        5.53385387e-02,
-        -6.68836819e-01,
-        -1.00109735e+00,
-        -9.43083926e-01,
-    ];
-
-    check_results(&result, &expected_result)
+    run_test_case(
+        &mut ADAASecond::new(NLProc::Tanh),
+        OversampleFactor::TwoTimes,
+        32,
+        "./tests/json_test_data/tanh_2x_ad2.json",
+    );
 }
 
-const OS_2X_PROC_UP: &[f32] = &[
-    0.02588619,
-    0.,
-    -0.00230416,
-    0.,
-    0.02628309,
-    0.,
-    -0.0048551,
-    0.,
-    0.0269638,
-    0.,
-    -0.00773468,
-    0.,
-    0.02802797,
-    0.,
-    -0.0110655,
-    0.,
-    0.02962816,
-    0.,
-    -0.01503983,
-    0.,
-    0.03201023,
-    0.,
-    -0.01997722,
-    0.,
-    0.03559735,
-    0.,
-    -0.02645036,
-    0.,
-    0.04118445,
-    0.,
-    -0.03559647,
-    0.,
-    0.05045896,
-    0.,
-    -0.05003508,
-    0.,
-    0.06772806,
-    0.,
-    -0.07740811,
-    0.,
-    0.10807149,
-    0.,
-    -0.15270462,
-    0.,
-    0.27987896,
-    0.,
-    -1.01288027,
-    -2.01263909,
-    -2.25438925,
-    -1.93213353,
-    -1.73638543,
-    -1.85162796,
-    -1.91857719,
-    -1.7711224,
-    -1.65158223,
-    -1.69061684,
-    -1.71683243,
-    -1.61011127,
-    -1.51814556,
-    -1.52960571,
-    -1.53843505,
-    -1.44910015,
-    -1.37164705,
-    -1.36859458,
-    -1.36809973,
-    -1.28808902,
-    -1.21981698,
-    -1.20758346,
-    -1.20147599,
-    -1.12707789,
-    -1.06529816,
-    -1.04657233,
-    -1.03686297,
-    -0.96606676,
-    -0.90923606,
-    -0.8855612,
-    -0.87346046,
-    -0.80505564,
-    -0.75220684,
-    -0.72455007,
-    -0.71084289,
-    -0.64404451,
-    -0.59453174,
-    -0.56353895,
-    -0.5487632,
-    -0.48303338,
-    -0.43640393,
-    -0.40252782,
-    -0.38706817,
-    -0.32202225,
-    -0.27794652,
-    -0.24151669,
-    -0.22565773,
-    -0.16101113,
-    -0.11924165,
-    -0.08050556,
-    -0.03974722,
-    0.,
-    0.03974722,
-    0.08050556,
-];
+#[test]
+fn test_4x_tanh_ad1() {
+    run_test_case(
+        &mut ADAAFirst::new(NLProc::Tanh),
+        OversampleFactor::FourTimes,
+        64,
+        "./tests/json_test_data/tanh_4x_ad1.json",
+    );
+}
 
-const BEFORE_PROC_DOWN_HC_AD2_2X: &[f32] = &[
-    8.62872988e-03,
-    0.00000000e+00,
-    7.86067752e-03,
-    0.00000000e+00,
-    7.99297883e-03,
-    0.00000000e+00,
-    7.14266346e-03,
-    0.00000000e+00,
-    7.36956604e-03,
-    0.00000000e+00,
-    6.40970566e-03,
-    0.00000000e+00,
-    6.76442878e-03,
-    0.00000000e+00,
-    5.65415670e-03,
-    0.00000000e+00,
-    6.18755302e-03,
-    0.00000000e+00,
-    4.86277613e-03,
-    0.00000000e+00,
-    5.65679840e-03,
-    0.00000000e+00,
-    4.01100061e-03,
-    0.00000000e+00,
-    5.20670693e-03,
-    0.00000000e+00,
-    3.04899490e-03,
-    0.00000000e+00,
-    4.91136176e-03,
-    0.00000000e+00,
-    1.86265789e-03,
-    0.00000000e+00,
-    4.95416329e-03,
-    0.00000000e+00,
-    1.41293771e-04,
-    0.00000000e+00,
-    5.89766056e-03,
-    0.00000000e+00,
-    -3.22668203e-03,
-    0.00000000e+00,
-    1.02211261e-02,
-    0.00000000e+00,
-    -1.48777121e-02,
-    0.00000000e+00,
-    4.23914447e-02,
-    0.00000000e+00,
-    -2.44333227e-01,
-    -8.36486080e-01,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -1.00000000e+00,
-    -9.97714829e-01,
-    -9.68873951e-01,
-    -9.20288009e-01,
-    -8.89419239e-01,
-    -8.54692431e-01,
-    -8.10240979e-01,
-    -7.60604185e-01,
-    -7.29199936e-01,
-    -6.93145825e-01,
-    -6.49806381e-01,
-    -6.00705066e-01,
-    -5.68944631e-01,
-    -5.31778511e-01,
-    -4.89400173e-01,
-    -4.40655044e-01,
-    -4.08666639e-01,
-    -3.70539413e-01,
-    -3.29012313e-01,
-    -2.80495154e-01,
-    -2.48373645e-01,
-    -2.09395182e-01,
-    -1.68636837e-01,
-    -1.20252782e-01,
-    -7.98314788e-02,
-    -4.00842606e-02,
-    -2.72774353e-18,
-    4.00842606e-02,
-];
+#[test]
+fn test_4x_tanh_ad2() {
+    run_test_case(
+        &mut ADAASecond::new(NLProc::Tanh),
+        OversampleFactor::FourTimes,
+        64,
+        "./tests/json_test_data/tanh_4x_ad2.json",
+    );
+}
+
+#[test]
+fn test_2x_hc_ad1() {
+    run_test_case(
+        &mut ADAAFirst::new(NLProc::HardClip),
+        OversampleFactor::TwoTimes,
+        32,
+        "./tests/json_test_data/hc_2x_ad1.json",
+    );
+}
 
 #[test]
 fn test_2x_hc_ad2() {
-    let mut os = Oversample::new(oversampler::OversampleFactor::TwoTimes, 50);
-    os.initialize_oversample_stages();
-    let mut ad = ADAASecond::new(NLProc::HardClip);
-
-    let mut input = INPUT_LINSPACE.into_iter().collect::<Vec<f32>>();
-    let mut output = vec![0.0_f32; 100];
-    let mut result = vec![0.0_f32; 50];
-
-    os.process_up(&mut input, &mut output);
-
-    output
-        .iter()
-        .zip(OS_2X_PROC_UP.iter())
-        .for_each(|(a, b)| assert!((a - b).abs() < ERR_TOL));
-
-    output.iter_mut().for_each(|v| *v = ad.next_adaa(v));
-
-    os.process_down(&mut output, &mut result);
-
-    let expected_result = [
-        -5.58412345e-05,
-        7.70732516e-06,
-        -5.99214077e-05,
-        1.67768959e-05,
-        -6.55767677e-05,
-        2.76786214e-05,
-        -7.33770495e-05,
-        4.11096044e-05,
-        -8.41839524e-05,
-        5.81473256e-05,
-        -9.93624762e-05,
-        8.05470622e-05,
-        -1.21209088e-04,
-        1.11374597e-04,
-        -1.53915563e-04,
-        1.56528103e-04,
-        -2.06077482e-04,
-        2.29095606e-04,
-        -2.98778045e-04,
-        3.65688710e-04,
-        -5.02676994e-04,
-        7.26587196e-04,
-        -1.30302756e-03,
-        4.53351428e-03,
-        1.31053849e-02,
-        5.51216357e-03,
-        1.25780217e-02,
-        4.79127657e-03,
-        1.23809971e-02,
-        3.90223389e-03,
-        1.23137990e-02,
-        2.88892727e-03,
-        1.23793428e-02,
-        1.72522121e-03,
-        1.26214788e-02,
-        3.48805305e-04,
-        1.31254507e-02,
-        -1.55824443e-03,
-        1.35484809e-02,
-        -4.32054990e-03,
-        1.47211152e-02,
-        -8.15770511e-03,
-        1.74873986e-02,
-        -1.45156274e-02,
-        2.46235163e-02,
-        -2.96076140e-02,
-        5.44260987e-02,
-        -7.56707810e-01,
-        -1.04480765e+00,
-        -9.87114966e-01,
-    ];
-
-    check_results(&result, &expected_result)
+    run_test_case(
+        &mut ADAASecond::new(NLProc::HardClip),
+        OversampleFactor::TwoTimes,
+        32,
+        "./tests/json_test_data/hc_2x_ad2.json",
+    );
 }
 
 #[test]
-fn real_small_ad2_hc_test() {
-    let mut os = Oversample::new(oversampler::OversampleFactor::TwoTimes, 5);
-    os.initialize_oversample_stages();
-    let mut ad = ADAASecond::new(NLProc::HardClip);
-
-    let mut input = vec![-2., 1., 0., 1., 2.];
-    let mut output = vec![0.0_f32; 10];
-    // let result = vec![0.0_f32; 5];
-
-    let expected_result = [
-        0.00862873,
-        0.00862873,
-        -0.00473727,
-        -0.013366,
-        0.00067199,
-        0.01403798,
-        -0.00504829,
-        -0.01908628,
-        -0.00761204,
-        0.01147424,
-    ];
-    os.process_up(&mut input, &mut output);
-
-    dbg!(&output);
-
-    output.iter_mut().for_each(|v| *v = ad.next_adaa(v));
-
-    dbg!(&output);
-
-    check_results(&output, &expected_result);
+fn test_4x_hc_ad1() {
+    run_test_case(
+        &mut ADAAFirst::new(NLProc::HardClip),
+        OversampleFactor::FourTimes,
+        64,
+        "./tests/json_test_data/hc_4x_ad1.json",
+    );
 }
 
 #[test]
-fn real_small_ad2_tanh_test() {
-    let mut os = Oversample::new(oversampler::OversampleFactor::TwoTimes, 5);
-    os.initialize_oversample_stages();
-    let mut ad = ADAASecond::new(NLProc::Tanh);
-
-    let mut input = vec![-2., 1., 0., 1., 2.];
-    let mut output = vec![0.0_f32; 10];
-    // let result = vec![0.0_f32; 5];
-
-    let expected_result = [
-        0.00862815,
-        0.00862815,
-        -0.00473619,
-        -0.01336385,
-        0.00067176,
-        0.0140355,
-        -0.00504574,
-        -0.01908002,
-        -0.00760864,
-        0.01147288,
-    ];
-
-    os.process_up(&mut input, &mut output);
-
-    dbg!(&output);
-
-    output.iter_mut().for_each(|v| *v = ad.next_adaa(v));
-
-    dbg!(&output);
-
-    check_results(&output, &expected_result);
+fn test_4x_hc_ad2() {
+    run_test_case(
+        &mut ADAASecond::new(NLProc::HardClip),
+        OversampleFactor::FourTimes,
+        64,
+        "./tests/json_test_data/hc_4x_ad2.json",
+    )
 }

@@ -26,6 +26,8 @@ adaa_nl = { path = "../adaa_nl" }
 num-traits = "0.2.14"
 # blas-src = { version = "0.8", features = ["accelerate"] }
 nih_plug_vizia = { path = "nih_plug_vizia" }
+serde = "1.0.200"
+serde_json = "1.0"
 
 # atomic_float = "0.1"
 # openblas-src = { version = "0.10", features = ["cblas", "system"]}
