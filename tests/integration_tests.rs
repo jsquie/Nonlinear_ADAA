@@ -7,7 +7,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use adaa_nl::{ADAAFirst, ADAASecond, NLProc, NextAdaa};
+use adaa_nl::*;
 use oversampler::{Oversample, OversampleFactor};
 
 const ERR_TOL: f32 = 1e-5;
@@ -135,7 +135,8 @@ fn read_test_case_from_file<P: AsRef<Path>>(path: P) -> Result<TestCase, Box<dyn
 fn test_2x_tanh_ad1() {
     let mut os = Oversample::new(OversampleFactor::TwoTimes, 32);
     os.initialize_oversample_stages();
-    let mut ad = ADAAFirst::new(NLProc::Tanh);
+    let mut ad = NonlinearProcessor::new();
+    ad.change_state(ProcStateTransition::ChangeStyle(ProcessorStyle::Tanh));
 
     let mut test_case = read_test_case_from_file("./tests/json_test_data/tanh_2x_ad1.json")
         .expect("File path incorrect");
@@ -144,16 +145,19 @@ fn test_2x_tanh_ad1() {
 
     os.process_up(&mut test_case.input, &mut output);
 
-    output
-        .iter_mut()
-        .for_each(|v| *v = ad.next_adaa(&(*v * 10.0)));
+    output.iter_mut().for_each(|v| *v = ad.process(*v * 10.0));
 
     os.process_down(&mut output, &mut result);
 
     check_results(&result, &test_case.expected_output);
 }
 
-fn run_test_case(ad: &mut impl NextAdaa, factor: OversampleFactor, size: usize, file_name: &str) {
+fn run_test_case(
+    ad: &mut NonlinearProcessor,
+    factor: OversampleFactor,
+    size: usize,
+    file_name: &str,
+) {
     let mut os = Oversample::new(factor, size);
     os.initialize_oversample_stages();
 
@@ -169,9 +173,7 @@ fn run_test_case(ad: &mut impl NextAdaa, factor: OversampleFactor, size: usize, 
 
     os.process_up(&mut test_case.input, &mut output);
 
-    output
-        .iter_mut()
-        .for_each(|v| *v = ad.next_adaa(&(*v * 10.0)));
+    output.iter_mut().for_each(|v| *v = ad.process(*v * 10.0));
 
     os.process_down(&mut output, &mut result);
 
@@ -180,8 +182,13 @@ fn run_test_case(ad: &mut impl NextAdaa, factor: OversampleFactor, size: usize, 
 
 #[test]
 fn test_2x_tanh_ad2() {
+    let mut proc = NonlinearProcessor::new();
+    proc.change_state(ProcStateTransition::ChangeStyle(ProcessorStyle::Tanh));
+    proc.change_state(ProcStateTransition::ChangeOrder(
+        AntiderivativeOrder::SecondOrder,
+    ));
     run_test_case(
-        &mut ADAASecond::new(NLProc::Tanh),
+        &mut proc,
         OversampleFactor::TwoTimes,
         32,
         "./tests/json_test_data/tanh_2x_ad2.json",
@@ -190,8 +197,10 @@ fn test_2x_tanh_ad2() {
 
 #[test]
 fn test_4x_tanh_ad1() {
+    let mut proc = NonlinearProcessor::new();
+    proc.change_state(ProcStateTransition::ChangeStyle(ProcessorStyle::Tanh));
     run_test_case(
-        &mut ADAAFirst::new(NLProc::Tanh),
+        &mut proc,
         OversampleFactor::FourTimes,
         64,
         "./tests/json_test_data/tanh_4x_ad1.json",
@@ -200,8 +209,13 @@ fn test_4x_tanh_ad1() {
 
 #[test]
 fn test_4x_tanh_ad2() {
+    let mut proc = NonlinearProcessor::new();
+    proc.change_state(ProcStateTransition::ChangeStyle(ProcessorStyle::Tanh));
+    proc.change_state(ProcStateTransition::ChangeOrder(
+        AntiderivativeOrder::SecondOrder,
+    ));
     run_test_case(
-        &mut ADAASecond::new(NLProc::Tanh),
+        &mut proc,
         OversampleFactor::FourTimes,
         64,
         "./tests/json_test_data/tanh_4x_ad2.json",
@@ -210,8 +224,9 @@ fn test_4x_tanh_ad2() {
 
 #[test]
 fn test_2x_hc_ad1() {
+    let mut proc = NonlinearProcessor::new();
     run_test_case(
-        &mut ADAAFirst::new(NLProc::HardClip),
+        &mut proc,
         OversampleFactor::TwoTimes,
         32,
         "./tests/json_test_data/hc_2x_ad1.json",
@@ -220,8 +235,12 @@ fn test_2x_hc_ad1() {
 
 #[test]
 fn test_2x_hc_ad2() {
+    let mut proc = NonlinearProcessor::new();
+    proc.change_state(ProcStateTransition::ChangeOrder(
+        AntiderivativeOrder::SecondOrder,
+    ));
     run_test_case(
-        &mut ADAASecond::new(NLProc::HardClip),
+        &mut proc,
         OversampleFactor::TwoTimes,
         32,
         "./tests/json_test_data/hc_2x_ad2.json",
@@ -230,8 +249,9 @@ fn test_2x_hc_ad2() {
 
 #[test]
 fn test_4x_hc_ad1() {
+    let mut proc = NonlinearProcessor::new();
     run_test_case(
-        &mut ADAAFirst::new(NLProc::HardClip),
+        &mut proc,
         OversampleFactor::FourTimes,
         64,
         "./tests/json_test_data/hc_4x_ad1.json",
@@ -240,8 +260,12 @@ fn test_4x_hc_ad1() {
 
 #[test]
 fn test_4x_hc_ad2() {
+    let mut proc = NonlinearProcessor::new();
+    proc.change_state(ProcStateTransition::ChangeOrder(
+        AntiderivativeOrder::SecondOrder,
+    ));
     run_test_case(
-        &mut ADAASecond::new(NLProc::HardClip),
+        &mut proc,
         OversampleFactor::FourTimes,
         64,
         "./tests/json_test_data/hc_4x_ad2.json",

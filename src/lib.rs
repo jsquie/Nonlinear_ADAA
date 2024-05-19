@@ -14,6 +14,7 @@ mod editor;
 const MAX_BLOCK_SIZE: usize = 32;
 const MAX_OS_FACTOR_SCALE: usize = 16;
 const PEAK_METER_DECAY_MS: f64 = 150.0;
+const PEAK_DECAY_FACTOR: f64 = 0.05;
 
 pub struct NonlinearAdaa {
     params: Arc<NonlinearAdaaParams>,
@@ -23,6 +24,7 @@ pub struct NonlinearAdaa {
     over_sample_process_buf: [f32; MAX_BLOCK_SIZE * MAX_OS_FACTOR_SCALE],
     pre_filters: [IIRBiquadFilter; 2],
     peak_meter_decay_weight: f32,
+    peak_meter_decay_scale_pos: usize,
     input_meters: [Arc<AtomicF32>; 2],
     output_meters: [Arc<AtomicF32>; 2],
 }
@@ -58,6 +60,7 @@ impl Default for NonlinearAdaa {
             over_sample_process_buf: [0.0; MAX_OS_FACTOR_SCALE * MAX_BLOCK_SIZE],
             pre_filters: [IIRBiquadFilter::default(), IIRBiquadFilter::default()],
             peak_meter_decay_weight: 1.0,
+            peak_meter_decay_scale_pos: 0,
             input_meters: [
                 Arc::new(AtomicF32::new(util::MINUS_INFINITY_DB)),
                 Arc::new(AtomicF32::new(util::MINUS_INFINITY_DB)),
@@ -240,7 +243,7 @@ impl Plugin for NonlinearAdaa {
             .iter_mut()
             .for_each(|x| *x = NonlinearProcessor::from_state(new_state));
 
-        self.peak_meter_decay_weight = 0.25f64
+        self.peak_meter_decay_weight = PEAK_DECAY_FACTOR
             .powf((buffer_config.sample_rate as f64 * PEAK_METER_DECAY_MS / 1000.0).recip())
             as f32;
 
@@ -291,7 +294,6 @@ impl Plugin for NonlinearAdaa {
                 );
 
                 self.proc_state = p_state;
-
                 nl_processor.compare_and_change_state(p_state);
 
                 // set cutoff
@@ -331,20 +333,23 @@ impl Plugin for NonlinearAdaa {
                     in_amplitude = (in_amplitude / samples_to_take as f32).abs();
                     out_amplitude = (out_amplitude / samples_to_take as f32).abs();
 
+                    nih_dbg!(&self.peak_meter_decay_weight);
+                    nih_dbg!(&in_amplitude);
                     let current_input_meter = in_meter.load(Ordering::Relaxed);
                     let current_out_meter = out_meter.load(Ordering::Relaxed);
 
                     let new_input_meter = if in_amplitude > current_input_meter {
-                        in_amplitude
+                        self.peak_meter_decay_scale_pos = 0;
+                        in_amplitude.clamp(0., 1.5)
                     } else {
                         current_input_meter * self.peak_meter_decay_weight
                             + in_amplitude * (1.0 - self.peak_meter_decay_weight)
                     };
 
                     let new_output_meter = if out_amplitude > current_out_meter {
-                        out_amplitude
+                        out_amplitude.clamp(0., 1.5)
                     } else {
-                        current_out_meter * self.peak_meter_decay_weight
+                        current_out_meter * (self.peak_meter_decay_weight)
                             + out_amplitude * (1.0 - self.peak_meter_decay_weight)
                     };
 

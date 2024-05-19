@@ -33,6 +33,7 @@ checksum = "76eb1adf08c5bcaa8490b9851fd53cca27fa9880076f178ea9d29f05196728a8"
 [[package]]
 name = "adaa_nl"
 version = "0.1.0"
+source = "git+https://github.com/jsquie/adaa_nl.git#177d9204d0312735647e29df82a4bef80f73ce88"
 dependencies = [
  "nih_plug",
  "polylog",
@@ -484,6 +485,7 @@ dependencies = [
 [[package]]
 name = "circular_buffer"
 version = "0.1.0"
+source = "git+https://github.com/jsquie/circular_buffer.git#faf1e62ae67cfa96e51d15f1b847abf017515b46"
 dependencies = [
  "apple-sys",
  "blas-src",
@@ -1150,6 +1152,7 @@ dependencies = [
 [[package]]
 name = "iir_biquad_filter"
 version = "0.1.0"
+source = "git+https://github.com/jsquie/iir_biquad_filter.git#bf2bd4be9832a8057a6a5c4a5d5944fa1bba958e"
 
 [[package]]
 name = "image"
@@ -1841,6 +1844,7 @@ checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 [[package]]
 name = "oversampler"
 version = "0.1.0"
+source = "git+https://github.com/jsquie/oversampler.git#0bc3a13f5aee748457ee3a399352c9b9e8381b19"
 dependencies = [
  "circular_buffer",
  "nih_plug",
