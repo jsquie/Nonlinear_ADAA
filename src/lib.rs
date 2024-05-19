@@ -333,8 +333,6 @@ impl Plugin for NonlinearAdaa {
                     in_amplitude = (in_amplitude / samples_to_take as f32).abs();
                     out_amplitude = (out_amplitude / samples_to_take as f32).abs();
 
-                    nih_dbg!(&self.peak_meter_decay_weight);
-                    nih_dbg!(&in_amplitude);
                     let current_input_meter = in_meter.load(Ordering::Relaxed);
                     let current_out_meter = out_meter.load(Ordering::Relaxed);
 

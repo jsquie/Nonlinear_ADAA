@@ -33,7 +33,6 @@ checksum = "76eb1adf08c5bcaa8490b9851fd53cca27fa9880076f178ea9d29f05196728a8"
 [[package]]
 name = "adaa_nl"
 version = "0.1.0"
-source = "git+https://github.com/jsquie/adaa_nl.git#177d9204d0312735647e29df82a4bef80f73ce88"
 dependencies = [
  "nih_plug",
  "polylog",
