@@ -7,8 +7,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use adaa_nl::*;
-use oversampler::{Oversample, OversampleFactor};
+use jdsp::{AntiderivativeOrder, NonlinearProcessor, ProcStateTransition, ProcessorStyle};
+use jdsp::{Oversample, OversampleFactor};
 
 const ERR_TOL: f32 = 1e-5;
 

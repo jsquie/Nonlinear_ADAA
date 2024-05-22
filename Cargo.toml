@@ -17,10 +17,7 @@ crate-type = ["cdylib", "lib"]
 # Remove the `assert_process_allocs` feature to allow allocations on the audio
 # thread in debug builds.
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }
-circular_buffer = { git = "https://github.com/jsquie/circular_buffer.git", features = ["linux"] }
-oversampler = { git = "https://github.com/jsquie/oversampler.git" }
-iir_biquad_filter = { git = "https://github.com/jsquie/iir_biquad_filter.git" }
-adaa_nl = { git = "https://github.com/jsquie/adaa_nl.git" }
+jdsp = { path = "../jdsp/jdsp", features = ["all"]}
 # ndarray = "0.15.6"
 # ndarray-rand = "0.14.0"
 num-traits = "0.2.14"

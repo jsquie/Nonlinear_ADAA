@@ -1,11 +1,11 @@
-use adaa_nl::{
+use itertools::izip;
+use jdsp::{
     AntiderivativeOrder, NonlinearProcessor, ProcessorState, ProcessorState::State, ProcessorStyle,
 };
-use iir_biquad_filter::{FilterOrder, IIRBiquadFilter};
-use itertools::izip;
+use jdsp::{FilterOrder, IIRBiquadFilter};
+use jdsp::{Oversample, OversampleFactor};
 use nih_plug::prelude::*;
 use nih_plug_vizia::ViziaState;
-use oversampler::{Oversample, OversampleFactor};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -302,8 +302,6 @@ impl Plugin for NonlinearAdaa {
                 if param_pre_filter_cutoff.is_smoothing() {
                     filter.set_cutoff(param_pre_filter_cutoff.next());
                 };
-
-                filter.process_block(block_channel);
 
                 oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
 

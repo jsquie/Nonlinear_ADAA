@@ -1,3 +1,0 @@
-
-
-/Users/jamessquires/.bun/bin:/opt/homebrew/opt/ruby/bin:/Users/jamessquires/.rbenv/shims:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Library/Apple/usr/bin:/Applications/VMware Fusion.app/Contents/Public:/Users/jamessquires/.bun/bin:/Users/jamessquires/opt/anaconda3/bin:/Users/jamessquires/opt/anaconda3/condabin:/opt/homebrew/opt/ruby/bin:/Users/jamessquires/.rbenv/shims:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/jamessquires/.cargo/bin
