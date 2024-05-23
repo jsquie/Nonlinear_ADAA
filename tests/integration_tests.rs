@@ -117,7 +117,7 @@ fn check_results(result: &[f32], expected_result: &[f32]) {
 
 #[derive(Deserialize, Debug)]
 struct TestCase {
-    name: String,
+    // name: String,
     input: Vec<f32>,
     expected_output: Vec<f32>,
 }

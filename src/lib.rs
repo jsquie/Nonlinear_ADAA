@@ -296,6 +296,8 @@ impl Plugin for NonlinearAdaa {
                 self.proc_state = p_state;
                 nl_processor.compare_and_change_state(p_state);
 
+                nih_dbg!(&nl_processor);
+
                 // set cutoff
                 let param_pre_filter_cutoff: &Smoother<f32> =
                     &self.params.pre_filter_cutoff.smoothed;
