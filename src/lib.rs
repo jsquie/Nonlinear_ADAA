@@ -241,7 +241,7 @@ impl Plugin for NonlinearAdaa {
 
         self.non_linear_processors
             .iter_mut()
-            .for_each(|x| *x = NonlinearProcessor::from_state(new_state));
+            .for_each(|x| *x = NonlinearProcessor::new());
 
         self.peak_meter_decay_weight = PEAK_DECAY_FACTOR
             .powf((buffer_config.sample_rate as f64 * PEAK_METER_DECAY_MS / 1000.0).recip())
@@ -260,7 +260,7 @@ impl Plugin for NonlinearAdaa {
 
         self.non_linear_processors
             .iter_mut()
-            .for_each(|x| *x = NonlinearProcessor::from_state(new_state));
+            .for_each(|x| *x = NonlinearProcessor::new());
 
         self.oversamplers.iter_mut().for_each(|x| x.reset());
         self.over_sample_process_buf
@@ -296,8 +296,6 @@ impl Plugin for NonlinearAdaa {
                 self.proc_state = p_state;
                 nl_processor.compare_and_change_state(p_state);
 
-                nih_dbg!(&nl_processor);
-
                 // set cutoff
                 let param_pre_filter_cutoff: &Smoother<f32> =
                     &self.params.pre_filter_cutoff.smoothed;
@@ -323,6 +321,7 @@ impl Plugin for NonlinearAdaa {
                         *sample *= gain;
                         in_amplitude += *sample;
                         *sample = nl_processor.process(*sample);
+                        // nih_dbg!(&nl_processor);
                         *sample *= output;
                         out_amplitude += *sample;
                     });
