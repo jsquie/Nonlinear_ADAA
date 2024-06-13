@@ -216,10 +216,6 @@ impl Plugin for NonlinearAdaa {
             .expect("Plugin was initialized without any outputs")
             .get() as usize;
 
-        self.oversamplers
-            .iter_mut()
-            .for_each(|os| os.initialize_oversample_stages());
-
         self.pre_filters[0].init(
             &buffer_config.sample_rate,
             &self.params.pre_filter_cutoff.value(),
@@ -273,7 +269,7 @@ impl Plugin for NonlinearAdaa {
         &mut self,
         buffer: &mut Buffer,
         _aux: &mut AuxiliaryBuffers,
-        _context: &mut impl ProcessContext<Self>,
+        context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         for (_, block) in buffer.iter_blocks(MAX_BLOCK_SIZE as usize) {
             for (block_channel, oversampler, filter, nl_processor, in_meter, out_meter) in izip!(
@@ -288,10 +284,18 @@ impl Plugin for NonlinearAdaa {
                     oversampler.set_oversample_factor(self.params.os_level.value());
                 };
 
+                let mut total_latency: u32 = oversampler.get_latency_samples() as u32;
+
                 let p_state = State(
                     self.params.nl_proc_type.value(),
                     self.params.nl_proc_order.value(),
                 );
+
+                if let State(_, AntiderivativeOrder::SecondOrder) = p_state {
+                    total_latency += 1;
+                }
+
+                context.set_latency_samples(total_latency);
 
                 self.proc_state = p_state;
                 nl_processor.compare_and_change_state(p_state);
@@ -321,7 +325,6 @@ impl Plugin for NonlinearAdaa {
                         *sample *= gain;
                         in_amplitude += *sample;
                         *sample = nl_processor.process(*sample);
-                        // nih_dbg!(&nl_processor);
                         *sample *= output;
                         out_amplitude += *sample;
                     });
