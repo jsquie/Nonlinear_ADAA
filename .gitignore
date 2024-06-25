@@ -1,1 +1,3 @@
 /target
+*.ipynb
+/.ipynb_checkpoints
