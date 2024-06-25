@@ -1,6 +1,7 @@
 use itertools::izip;
 use jdsp::{
-    AntiderivativeOrder, NonlinearProcessor, ProcessorState, ProcessorState::State, ProcessorStyle,
+    AntiderivativeOrder, CircularDelayBuffer, NonlinearProcessor, ProcessorState,
+    ProcessorState::State, ProcessorStyle, MAX_LATENCY_AMT,
 };
 use jdsp::{FilterOrder, IIRBiquadFilter};
 use jdsp::{Oversample, OversampleFactor};
@@ -27,6 +28,8 @@ pub struct NonlinearAdaa {
     peak_meter_decay_scale_pos: usize,
     input_meters: [Arc<AtomicF32>; 2],
     output_meters: [Arc<AtomicF32>; 2],
+    mix_scratch_buffer: [f32; MAX_BLOCK_SIZE],
+    dry_delay: [CircularDelayBuffer; 2],
 }
 
 #[derive(Params, Debug)]
@@ -43,6 +46,8 @@ pub struct NonlinearAdaaParams {
     pub os_level: EnumParam<OversampleFactor>,
     #[id = "pre filter cutoff"]
     pub pre_filter_cutoff: FloatParam,
+    #[id = "dry wet"]
+    pub dry_wet: FloatParam,
     #[persist = "editor-state"]
     editor_state: Arc<ViziaState>,
 }
@@ -68,6 +73,11 @@ impl Default for NonlinearAdaa {
             output_meters: [
                 Arc::new(AtomicF32::new(util::MINUS_INFINITY_DB)),
                 Arc::new(AtomicF32::new(util::MINUS_INFINITY_DB)),
+            ],
+            mix_scratch_buffer: [0.0_f32; MAX_BLOCK_SIZE],
+            dry_delay: [
+                CircularDelayBuffer::new(MAX_LATENCY_AMT),
+                CircularDelayBuffer::new(MAX_LATENCY_AMT),
             ],
         }
     }
@@ -121,6 +131,11 @@ impl NonlinearAdaaParams {
             nl_proc_type: EnumParam::new("Nonlinear Process", ProcessorStyle::HardClip),
 
             nl_proc_order: EnumParam::new("Antiderivative Order", AntiderivativeOrder::FirstOrder),
+
+            dry_wet: FloatParam::new("Mix Amount", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_smoother(SmoothingStyle::Linear(50.0))
+                .with_value_to_string(formatters::v2s_f32_percentage(1))
+                .with_string_to_value(formatters::s2v_f32_percentage()),
 
             os_level: EnumParam::new("Oversample Factor", OversampleFactor::TwoTimes)
                 .with_callback(Arc::new(move |new_factor| {
@@ -209,24 +224,20 @@ impl Plugin for NonlinearAdaa {
         &mut self,
         _audio_io_layout: &AudioIOLayout,
         buffer_config: &BufferConfig,
-        _context: &mut impl InitContext<Self>,
+        context: &mut impl InitContext<Self>,
     ) -> bool {
         let _num_channels = _audio_io_layout
             .main_output_channels
             .expect("Plugin was initialized without any outputs")
             .get() as usize;
 
-        self.pre_filters[0].init(
-            &buffer_config.sample_rate,
-            &self.params.pre_filter_cutoff.value(),
-            FilterOrder::First,
-        );
-
-        self.pre_filters[1].init(
-            &buffer_config.sample_rate,
-            &self.params.pre_filter_cutoff.value(),
-            FilterOrder::First,
-        );
+        self.pre_filters.iter_mut().for_each(|filter| {
+            filter.init(
+                &buffer_config.sample_rate,
+                &self.params.pre_filter_cutoff.value(),
+                FilterOrder::First,
+            )
+        });
 
         let new_state = State(
             self.params.nl_proc_type.value(),
@@ -238,6 +249,15 @@ impl Plugin for NonlinearAdaa {
         self.non_linear_processors
             .iter_mut()
             .for_each(|x| *x = NonlinearProcessor::new());
+
+        self.dry_delay
+            .iter_mut()
+            .zip(self.oversamplers.iter())
+            .for_each(|(delay, stage)| {
+                let latency = stage.get_latency_samples();
+                context.set_latency_samples(latency as u32);
+                delay.set_delay_len(latency)
+            });
 
         self.peak_meter_decay_weight = PEAK_DECAY_FACTOR
             .powf((buffer_config.sample_rate as f64 * PEAK_METER_DECAY_MS / 1000.0).recip())
@@ -272,16 +292,18 @@ impl Plugin for NonlinearAdaa {
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         for (_, block) in buffer.iter_blocks(MAX_BLOCK_SIZE as usize) {
-            for (block_channel, oversampler, filter, nl_processor, in_meter, out_meter) in izip!(
+            for (block_channel, oversampler, filter, nl_processor, in_meter, out_meter, delay) in izip!(
                 block,
                 &mut self.oversamplers,
                 &mut self.pre_filters,
                 &mut self.non_linear_processors,
                 &mut self.input_meters,
                 &mut self.output_meters,
+                &mut self.dry_delay,
             ) {
                 if self.params.os_level.value() != oversampler.get_oversample_factor() {
                     oversampler.set_oversample_factor(self.params.os_level.value());
+                    delay.set_delay_len(oversampler.get_latency_samples());
                 };
 
                 let mut total_latency: u32 = oversampler.get_latency_samples() as u32;
@@ -300,21 +322,38 @@ impl Plugin for NonlinearAdaa {
                 self.proc_state = p_state;
                 nl_processor.compare_and_change_state(p_state);
 
-                // set cutoff
-                let param_pre_filter_cutoff: &Smoother<f32> =
-                    &self.params.pre_filter_cutoff.smoothed;
-                if param_pre_filter_cutoff.is_smoothing() {
-                    filter.set_cutoff(param_pre_filter_cutoff.next());
-                };
+                // pre filter and add dry to mix_scratch_buffer
+                block_channel
+                    .iter_mut()
+                    .zip(self.mix_scratch_buffer.iter_mut())
+                    .for_each(|(s, d)| {
+                        let param_pre_filter_cutoff: &Smoother<f32> =
+                            &self.params.pre_filter_cutoff.smoothed;
+                        if param_pre_filter_cutoff.is_smoothing() {
+                            filter.set_cutoff(param_pre_filter_cutoff.next());
+                        };
 
+                        *d = *s;
+                        filter.process_sample(s);
+                    });
+
+                // delay dry signal by total latency
+                // might have to adjust how the delay changes sizes
+                // i.e. might have to have it so that the start/finish is dynamic with the
+                // size of the latency
+                delay.delay(&mut self.mix_scratch_buffer);
+
+                // upsample -- store upsampled signal contents in over_sample_process_buf
                 oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
 
+                // to determine how many samples to process, given current oversample factor
                 let samples_to_take =
                     2_u32.pow(oversampler.get_oversample_factor() as u32) as usize * MAX_BLOCK_SIZE;
 
                 let mut in_amplitude = 0.0;
                 let mut out_amplitude = 0.0;
 
+                // nonlinear process oversampled signal
                 self.over_sample_process_buf
                     .iter_mut()
                     .take(samples_to_take)
@@ -326,14 +365,27 @@ impl Plugin for NonlinearAdaa {
                         in_amplitude += *sample;
                         *sample = nl_processor.process(*sample);
                         *sample *= output;
-                        out_amplitude += *sample;
                     });
 
+                // down sample processed signal and store in block channel
                 oversampler.process_down(&mut self.over_sample_process_buf, block_channel);
 
+                // mix dry with wet
+                block_channel
+                    .iter_mut()
+                    .zip(self.mix_scratch_buffer.iter())
+                    .for_each(|(w, d)| {
+                        let wet_amt = self.params.dry_wet.smoothed.next();
+
+                        *w = (wet_amt * *w) + ((1.0 - wet_amt) * d);
+
+                        out_amplitude += *w;
+                    });
+
+                // display meter levels only if GUI is open
                 if self.params.editor_state.is_open() {
                     in_amplitude = (in_amplitude / samples_to_take as f32).abs();
-                    out_amplitude = (out_amplitude / samples_to_take as f32).abs();
+                    out_amplitude = (out_amplitude / block_channel.len() as f32).abs();
 
                     let current_input_meter = in_meter.load(Ordering::Relaxed);
                     let current_out_meter = out_meter.load(Ordering::Relaxed);

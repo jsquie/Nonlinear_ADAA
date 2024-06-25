@@ -83,6 +83,9 @@ pub(crate) fn create(
 
                     Label::new(cx, "Oversampling");
                     ParamSlider::new(cx, Data::params, |params| &params.os_level);
+
+                    Label::new(cx, "Mix");
+                    ParamSlider::new(cx, Data::params, |params| &params.dry_wet);
                 })
                 .border_width(Pixels(5.0))
                 .border_color(Color::black())
