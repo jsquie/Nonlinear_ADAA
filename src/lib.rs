@@ -48,6 +48,8 @@ pub struct NonlinearAdaaParams {
     pub pre_filter_cutoff: FloatParam,
     #[id = "dry wet"]
     pub dry_wet: FloatParam,
+    #[id = "plugin bypass"]
+    pub bypass: BoolParam,
     #[persist = "editor-state"]
     editor_state: Arc<ViziaState>,
 }
@@ -157,6 +159,8 @@ impl NonlinearAdaaParams {
             .with_smoother(SmoothingStyle::Logarithmic(10.0))
             .with_value_to_string(formatters::v2s_f32_hz_then_khz(0))
             .with_string_to_value(formatters::s2v_f32_hz_then_khz()),
+
+            bypass: BoolParam::new("Plugin Bypass", false),
         }
     }
 }
@@ -301,112 +305,116 @@ impl Plugin for NonlinearAdaa {
                 &mut self.output_meters,
                 &mut self.dry_delay,
             ) {
-                if self.params.os_level.value() != oversampler.get_oversample_factor() {
-                    oversampler.set_oversample_factor(self.params.os_level.value());
-                    delay.set_delay_len(oversampler.get_latency_samples());
-                };
+                if !self.params.bypass.value() {
+                    if self.params.os_level.value() != oversampler.get_oversample_factor() {
+                        oversampler.set_oversample_factor(self.params.os_level.value());
+                        delay.set_delay_len(oversampler.get_latency_samples());
+                    };
 
-                let mut total_latency: u32 = oversampler.get_latency_samples() as u32;
+                    nih_dbg!(&self.params.bypass);
+                    let total_latency: u32 = oversampler.get_latency_samples() as u32;
 
-                let p_state = State(
-                    self.params.nl_proc_type.value(),
-                    self.params.nl_proc_order.value(),
-                );
+                    let p_state = State(
+                        self.params.nl_proc_type.value(),
+                        self.params.nl_proc_order.value(),
+                    );
 
-                if let State(_, AntiderivativeOrder::SecondOrder) = p_state {
-                    total_latency += 1;
-                }
+                    // if let State(_, AntiderivativeOrder::SecondOrder) = p_state {
+                    // total_latency += 1;
+                    // }
 
-                context.set_latency_samples(total_latency);
+                    context.set_latency_samples(total_latency);
 
-                self.proc_state = p_state;
-                nl_processor.compare_and_change_state(p_state);
+                    self.proc_state = p_state;
+                    nl_processor.compare_and_change_state(p_state);
 
-                // pre filter and add dry to mix_scratch_buffer
-                block_channel
-                    .iter_mut()
-                    .zip(self.mix_scratch_buffer.iter_mut())
-                    .for_each(|(s, d)| {
-                        let param_pre_filter_cutoff: &Smoother<f32> =
-                            &self.params.pre_filter_cutoff.smoothed;
-                        if param_pre_filter_cutoff.is_smoothing() {
-                            filter.set_cutoff(param_pre_filter_cutoff.next());
+                    // pre filter and add dry to mix_scratch_buffer
+                    block_channel
+                        .iter_mut()
+                        .zip(self.mix_scratch_buffer.iter_mut())
+                        .for_each(|(s, d)| {
+                            let param_pre_filter_cutoff: &Smoother<f32> =
+                                &self.params.pre_filter_cutoff.smoothed;
+                            if param_pre_filter_cutoff.is_smoothing() {
+                                filter.set_cutoff(param_pre_filter_cutoff.next());
+                            };
+
+                            *d = *s;
+                            filter.process_sample(s);
+                        });
+
+                    // delay dry signal by total latency
+                    // might have to adjust how the delay changes sizes
+                    // i.e. might have to have it so that the start/finish is dynamic with the
+                    // size of the latency
+                    delay.delay(&mut self.mix_scratch_buffer);
+
+                    // upsample -- store upsampled signal contents in over_sample_process_buf
+                    oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
+
+                    // to determine how many samples to process, given current oversample factor
+                    let samples_to_take = 2_u32.pow(oversampler.get_oversample_factor() as u32)
+                        as usize
+                        * MAX_BLOCK_SIZE;
+
+                    let mut in_amplitude = 0.0;
+                    let mut out_amplitude = 0.0;
+
+                    // nonlinear process oversampled signal
+                    self.over_sample_process_buf
+                        .iter_mut()
+                        .take(samples_to_take)
+                        .for_each(|sample| {
+                            let gain = self.params.gain.smoothed.next();
+                            let output = self.params.output.smoothed.next();
+
+                            *sample *= gain;
+                            in_amplitude += *sample;
+                            *sample = nl_processor.process(*sample);
+                            *sample *= output;
+                        });
+
+                    // down sample processed signal and store in block channel
+                    oversampler.process_down(&mut self.over_sample_process_buf, block_channel);
+
+                    // mix dry with wet
+                    block_channel
+                        .iter_mut()
+                        .zip(self.mix_scratch_buffer.iter())
+                        .for_each(|(w, d)| {
+                            let wet_amt = self.params.dry_wet.smoothed.next();
+
+                            *w = (wet_amt * *w) + ((1.0 - wet_amt) * d);
+
+                            out_amplitude += *w;
+                        });
+
+                    // display meter levels only if GUI is open
+                    if self.params.editor_state.is_open() {
+                        in_amplitude = (in_amplitude / samples_to_take as f32).abs();
+                        out_amplitude = (out_amplitude / block_channel.len() as f32).abs();
+
+                        let current_input_meter = in_meter.load(Ordering::Relaxed);
+                        let current_out_meter = out_meter.load(Ordering::Relaxed);
+
+                        let new_input_meter = if in_amplitude > current_input_meter {
+                            self.peak_meter_decay_scale_pos = 0;
+                            in_amplitude.clamp(0., 1.5)
+                        } else {
+                            current_input_meter * self.peak_meter_decay_weight
+                                + in_amplitude * (1.0 - self.peak_meter_decay_weight)
                         };
 
-                        *d = *s;
-                        filter.process_sample(s);
-                    });
+                        let new_output_meter = if out_amplitude > current_out_meter {
+                            out_amplitude.clamp(0., 1.5)
+                        } else {
+                            current_out_meter * (self.peak_meter_decay_weight)
+                                + out_amplitude * (1.0 - self.peak_meter_decay_weight)
+                        };
 
-                // delay dry signal by total latency
-                // might have to adjust how the delay changes sizes
-                // i.e. might have to have it so that the start/finish is dynamic with the
-                // size of the latency
-                delay.delay(&mut self.mix_scratch_buffer);
-
-                // upsample -- store upsampled signal contents in over_sample_process_buf
-                oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
-
-                // to determine how many samples to process, given current oversample factor
-                let samples_to_take =
-                    2_u32.pow(oversampler.get_oversample_factor() as u32) as usize * MAX_BLOCK_SIZE;
-
-                let mut in_amplitude = 0.0;
-                let mut out_amplitude = 0.0;
-
-                // nonlinear process oversampled signal
-                self.over_sample_process_buf
-                    .iter_mut()
-                    .take(samples_to_take)
-                    .for_each(|sample| {
-                        let gain = self.params.gain.smoothed.next();
-                        let output = self.params.output.smoothed.next();
-
-                        *sample *= gain;
-                        in_amplitude += *sample;
-                        *sample = nl_processor.process(*sample);
-                        *sample *= output;
-                    });
-
-                // down sample processed signal and store in block channel
-                oversampler.process_down(&mut self.over_sample_process_buf, block_channel);
-
-                // mix dry with wet
-                block_channel
-                    .iter_mut()
-                    .zip(self.mix_scratch_buffer.iter())
-                    .for_each(|(w, d)| {
-                        let wet_amt = self.params.dry_wet.smoothed.next();
-
-                        *w = (wet_amt * *w) + ((1.0 - wet_amt) * d);
-
-                        out_amplitude += *w;
-                    });
-
-                // display meter levels only if GUI is open
-                if self.params.editor_state.is_open() {
-                    in_amplitude = (in_amplitude / samples_to_take as f32).abs();
-                    out_amplitude = (out_amplitude / block_channel.len() as f32).abs();
-
-                    let current_input_meter = in_meter.load(Ordering::Relaxed);
-                    let current_out_meter = out_meter.load(Ordering::Relaxed);
-
-                    let new_input_meter = if in_amplitude > current_input_meter {
-                        self.peak_meter_decay_scale_pos = 0;
-                        in_amplitude.clamp(0., 1.5)
-                    } else {
-                        current_input_meter * self.peak_meter_decay_weight
-                            + in_amplitude * (1.0 - self.peak_meter_decay_weight)
-                    };
-
-                    let new_output_meter = if out_amplitude > current_out_meter {
-                        out_amplitude.clamp(0., 1.5)
-                    } else {
-                        current_out_meter * (self.peak_meter_decay_weight)
-                            + out_amplitude * (1.0 - self.peak_meter_decay_weight)
-                    };
-
-                    in_meter.store(new_input_meter, Ordering::Relaxed);
-                    out_meter.store(new_output_meter, Ordering::Relaxed);
+                        in_meter.store(new_input_meter, Ordering::Relaxed);
+                        out_meter.store(new_output_meter, Ordering::Relaxed);
+                    }
                 }
             }
         }

@@ -66,6 +66,9 @@ pub(crate) fn create(
 
             HStack::new(cx, |cx| {
                 VStack::new(cx, |cx| {
+                    Label::new(cx, "Bypass");
+                    ParamButton::new(cx, Data::params, |params| &params.bypass);
+
                     Label::new(cx, "Gain").top(Pixels(10.0));
                     ParamSlider::new(cx, Data::params, |params| &params.gain);
 
