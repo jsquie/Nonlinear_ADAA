@@ -311,7 +311,6 @@ impl Plugin for NonlinearAdaa {
                         delay.set_delay_len(oversampler.get_latency_samples());
                     };
 
-                    nih_dbg!(&self.params.bypass);
                     let total_latency: u32 = oversampler.get_latency_samples() as u32;
 
                     let p_state = State(

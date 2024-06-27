@@ -1,3 +1,4 @@
+
 [package]
 name = "Nonlinear_ADAA"
 version = "0.1.0"
@@ -22,7 +23,7 @@ jdsp = { path = "../jdsp/jdsp", features = ["all"]}
 # ndarray-rand = "0.14.0"
 num-traits = "0.2.14"
 # blas-src = { version = "0.8", features = ["accelerate"] }
-nih_plug_vizia = { path = "nih_plug_vizia" }
+nih_plug_vizia = { git = "https://github.com/robbert-vdh/nih-plug.git" } 
 serde = "1.0.200"
 serde_json = "1.0"
 itertools = "0.12.1"
@@ -37,7 +38,7 @@ itertools = "0.12.1"
 [profile.release]
 lto = "fat"
 strip = "symbols"
-codegen-units = 1 
+codegen-units = 4
 
 [profile.profiling]
 inherits = "release"

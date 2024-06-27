@@ -8,13 +8,6 @@ use std::sync::Arc;
 
 use crate::NonlinearAdaaParams;
 
-const STYLE: &str = r#"
-    .foo {
-        width: 300px; 
-    }
-    
-"#;
-
 #[derive(Lens)]
 struct Data {
     params: Arc<NonlinearAdaaParams>,
@@ -26,7 +19,7 @@ impl Model for Data {}
 
 // Makes sense to also define this here, makes it a bit easier to keep track of
 pub(crate) fn default_state() -> Arc<ViziaState> {
-    ViziaState::new(|| (500, 600))
+    ViziaState::new(|| (430, 600))
 }
 
 pub(crate) fn create(
@@ -40,7 +33,7 @@ pub(crate) fn create(
         assets::register_noto_sans_thin(cx);
         assets::register_noto_sans_bold(cx);
 
-        let _ = cx.add_stylesheet(STYLE);
+        // let _ = cx.add_stylesheet(STYLE);
 
         Data {
             params: params.clone(),
@@ -50,88 +43,130 @@ pub(crate) fn create(
         .build(cx);
 
         VStack::new(cx, |cx| {
+            // Knob::new(cx, 0.5, , false);
+
             HStack::new(cx, |cx| {
-                VStack::new(cx, |_| {});
-                VStack::new(cx, |cx| {
-                    Label::new(cx, "Nonlinear ADAA")
-                        .font_size(30.0)
-                        .height(Pixels(50.0))
-                        .width(Pixels(300.0))
-                        .text_align(TextAlign::Center);
-                })
-                .class("foo");
-                VStack::new(cx, |_| {});
+                Label::new(cx, "Nonlinear ADAA").font_size(30.0);
             })
-            .height(Pixels(100.0));
+            .child_space(Stretch(1.0))
+            //.border_width(Pixels(5.0))
+            //.border_color(Color::black())
+            .height(Pixels(50.0));
 
             HStack::new(cx, |cx| {
                 VStack::new(cx, |cx| {
-                    Label::new(cx, "Bypass");
-                    ParamButton::new(cx, Data::params, |params| &params.bypass);
+                    VStack::new(cx, |cx| {
+                        ParamButton::new(cx, Data::params, |params| &params.bypass);
 
-                    Label::new(cx, "Gain").top(Pixels(10.0));
-                    ParamSlider::new(cx, Data::params, |params| &params.gain);
+                        VStack::new(cx, |cx| {
+                            Label::new(cx, "Gain");
+                            ParamSlider::new(cx, Data::params, |params| &params.gain);
+                        })
+                        .row_between(Pixels(2.0));
 
-                    Label::new(cx, "Output");
-                    ParamSlider::new(cx, Data::params, |params| &params.output);
+                        VStack::new(cx, |cx| {
+                            Label::new(cx, "Output");
+                            ParamSlider::new(cx, Data::params, |params| &params.output);
+                        })
+                        .row_between(Pixels(2.0));
 
-                    Label::new(cx, "Prefilter Cutoff Frequency");
-                    ParamSlider::new(cx, Data::params, |params| &params.pre_filter_cutoff);
+                        VStack::new(cx, |cx| {
+                            Label::new(cx, "Prefilter Cutoff Frequency");
+                            ParamSlider::new(cx, Data::params, |params| &params.pre_filter_cutoff);
+                        })
+                        .row_between(Pixels(2.0));
 
-                    Label::new(cx, "Clip Style");
-                    ParamSlider::new(cx, Data::params, |params| &params.nl_proc_type);
+                        VStack::new(cx, |cx| {
+                            Label::new(cx, "Clip Style");
+                            ParamSlider::new(cx, Data::params, |params| &params.nl_proc_type);
+                        })
+                        .row_between(Pixels(2.0));
 
-                    Label::new(cx, "ADAA order");
-                    ParamSlider::new(cx, Data::params, |params| &params.nl_proc_order);
+                        VStack::new(cx, |cx| {
+                            Label::new(cx, "ADAA order");
+                            ParamSlider::new(cx, Data::params, |params| &params.nl_proc_order);
+                        })
+                        .row_between(Pixels(2.0));
 
-                    Label::new(cx, "Oversampling");
-                    ParamSlider::new(cx, Data::params, |params| &params.os_level);
+                        VStack::new(cx, |cx| {
+                            Label::new(cx, "Oversampling");
+                            ParamSlider::new(cx, Data::params, |params| &params.os_level);
+                        })
+                        .row_between(Pixels(2.0));
 
-                    Label::new(cx, "Mix");
-                    ParamSlider::new(cx, Data::params, |params| &params.dry_wet);
+                        VStack::new(cx, |cx| {
+                            Label::new(cx, "Mix");
+                            ParamSlider::new(cx, Data::params, |params| &params.dry_wet);
+                        })
+                        .row_between(Pixels(2.0));
+                    })
+                    .child_space(Percentage(5.0))
+                    //.border_width(Pixels(5.0))
+                    //.border_color(Color::black())
+                    .row_between(Pixels(10.0));
                 })
-                .border_width(Pixels(5.0))
-                .border_color(Color::black())
-                .left(Pixels(5.0));
+                .child_left(Percentage(5.0))
+                .child_bottom(Percentage(10.0));
+                //.border_width(Pixels(5.0))
+                //.border_color(Color::black());
 
                 VStack::new(cx, |cx| {
-                    Label::new(cx, "Input Level").top(Pixels(10.0));
-                    PeakMeter::new(
-                        cx,
-                        Data::input_peak_meters.map(|peak_meter| {
-                            util::gain_to_db(peak_meter[0].load(Ordering::Relaxed))
-                        }),
-                        Some(Duration::from_millis(600)),
-                    );
-                    PeakMeter::new(
-                        cx,
-                        Data::input_peak_meters.map(|peak_meter| {
-                            util::gain_to_db(peak_meter[1].load(Ordering::Relaxed))
-                        }),
-                        Some(Duration::from_millis(600)),
-                    )
-                    .bottom(Pixels(5.0));
+                    VStack::new(cx, |cx| {
+                        Label::new(cx, "Input Level");
+                        PeakMeter::new(
+                            cx,
+                            Data::input_peak_meters.map(|peak_meter| {
+                                util::gain_to_db(peak_meter[0].load(Ordering::Relaxed))
+                            }),
+                            Some(Duration::from_millis(600)),
+                        );
+                        PeakMeter::new(
+                            cx,
+                            Data::input_peak_meters.map(|peak_meter| {
+                                util::gain_to_db(peak_meter[1].load(Ordering::Relaxed))
+                            }),
+                            Some(Duration::from_millis(600)),
+                        );
+                    })
+                    //.border_width(Pixels(5.0))
+                    //.border_color(Color::black())
+                    // .space(Percentage(10.0))
+                    .row_between(Pixels(5.0));
 
-                    Label::new(cx, "Output Level");
-                    PeakMeter::new(
-                        cx,
-                        Data::output_peak_meters.map(|peak_meter| {
-                            util::gain_to_db(peak_meter[0].load(Ordering::Relaxed))
-                        }),
-                        Some(Duration::from_millis(600)),
-                    );
-                    PeakMeter::new(
-                        cx,
-                        Data::output_peak_meters.map(|peak_meter| {
-                            util::gain_to_db(peak_meter[1].load(Ordering::Relaxed))
-                        }),
-                        Some(Duration::from_millis(600)),
-                    );
+                    VStack::new(cx, |cx| {
+                        Label::new(cx, "Output Level");
+                        PeakMeter::new(
+                            cx,
+                            Data::output_peak_meters.map(|peak_meter| {
+                                util::gain_to_db(peak_meter[0].load(Ordering::Relaxed))
+                            }),
+                            Some(Duration::from_millis(600)),
+                        );
+                        PeakMeter::new(
+                            cx,
+                            Data::output_peak_meters.map(|peak_meter| {
+                                util::gain_to_db(peak_meter[1].load(Ordering::Relaxed))
+                            }),
+                            Some(Duration::from_millis(600)),
+                        );
+                    })
+                    //.border_width(Pixels(5.0))
+                    //.border_color(Color::black())
+                    .row_between(Pixels(5.0));
+                    // .space(Percentage(10.0));
                 })
-                .right(Pixels(5.0))
-                .border_width(Pixels(5.0))
-                .border_color(Color::blue());
-            });
-        });
+                .child_space(Percentage(1.0))
+                .child_bottom(Percentage(65.0))
+                //.border_width(Pixels(5.0))
+                //.border_color(Color::black())
+                .row_between(Pixels(10.0));
+            })
+            //.border_width(Pixels(5.0))
+            //.border_color(Color::black())
+            .col_between(Pixels(20.0));
+        })
+        //.border_width(Pixels(5.0))
+        //.border_color(Color::black())
+        .row_between(Pixels(20.0));
     })
 }
