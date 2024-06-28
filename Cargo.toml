@@ -27,6 +27,7 @@ nih_plug_vizia = { git = "https://github.com/robbert-vdh/nih-plug.git" }
 serde = "1.0.200"
 serde_json = "1.0"
 itertools = "0.12.1"
+vizia = "0.1.0"
 
 # atomic_float = "0.1"
 # openblas-src = { version = "0.10", features = ["cblas", "system"]}

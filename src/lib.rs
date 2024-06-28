@@ -11,6 +11,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 mod editor;
+mod knob;
 
 const MAX_BLOCK_SIZE: usize = 32;
 const MAX_OS_FACTOR_SCALE: usize = 16;
