@@ -1,4 +1,3 @@
-use itertools::izip;
 use jdsp::{
     AntiderivativeOrder, CircularDelayBuffer, NonlinearProcessor, ProcessorState,
     ProcessorState::State, ProcessorStyle, MAX_LATENCY_AMT,
@@ -11,7 +10,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 mod editor;
-mod knob;
 
 const MAX_BLOCK_SIZE: usize = 32;
 const MAX_OS_FACTOR_SCALE: usize = 16;
@@ -23,13 +21,12 @@ pub struct NonlinearAdaa {
     non_linear_processors: [NonlinearProcessor; 2],
     proc_state: ProcessorState,
     oversamplers: [Oversample; 2],
-    over_sample_process_buf: [f32; MAX_BLOCK_SIZE * MAX_OS_FACTOR_SCALE],
+    over_sample_process_buf: [[f32; MAX_BLOCK_SIZE * MAX_OS_FACTOR_SCALE]; 2],
     pre_filters: [IIRBiquadFilter; 2],
     peak_meter_decay_weight: f32,
-    peak_meter_decay_scale_pos: usize,
     input_meters: [Arc<AtomicF32>; 2],
     output_meters: [Arc<AtomicF32>; 2],
-    mix_scratch_buffer: [f32; MAX_BLOCK_SIZE],
+    mix_scratch_buffer: [[f32; MAX_BLOCK_SIZE]; 2],
     dry_delay: [CircularDelayBuffer; 2],
 }
 
@@ -65,10 +62,9 @@ impl Default for NonlinearAdaa {
                 Oversample::new(OversampleFactor::TwoTimes, MAX_BLOCK_SIZE),
                 Oversample::new(OversampleFactor::TwoTimes, MAX_BLOCK_SIZE),
             ],
-            over_sample_process_buf: [0.0; MAX_OS_FACTOR_SCALE * MAX_BLOCK_SIZE],
+            over_sample_process_buf: [[0.0; MAX_OS_FACTOR_SCALE * MAX_BLOCK_SIZE]; 2],
             pre_filters: [IIRBiquadFilter::default(), IIRBiquadFilter::default()],
             peak_meter_decay_weight: 1.0,
-            peak_meter_decay_scale_pos: 0,
             input_meters: [
                 Arc::new(AtomicF32::new(util::MINUS_INFINITY_DB)),
                 Arc::new(AtomicF32::new(util::MINUS_INFINITY_DB)),
@@ -77,7 +73,7 @@ impl Default for NonlinearAdaa {
                 Arc::new(AtomicF32::new(util::MINUS_INFINITY_DB)),
                 Arc::new(AtomicF32::new(util::MINUS_INFINITY_DB)),
             ],
-            mix_scratch_buffer: [0.0_f32; MAX_BLOCK_SIZE],
+            mix_scratch_buffer: [[0.0_f32; MAX_BLOCK_SIZE]; 2],
             dry_delay: [
                 CircularDelayBuffer::new(MAX_LATENCY_AMT),
                 CircularDelayBuffer::new(MAX_LATENCY_AMT),
@@ -285,9 +281,15 @@ impl Plugin for NonlinearAdaa {
             .for_each(|x| *x = NonlinearProcessor::new());
 
         self.oversamplers.iter_mut().for_each(|x| x.reset());
+
         self.over_sample_process_buf
             .iter_mut()
-            .for_each(|x| *x = 0.0);
+            .for_each(|os| os.copy_from_slice(&[0.0; MAX_BLOCK_SIZE * MAX_OS_FACTOR_SCALE]));
+
+        self.mix_scratch_buffer
+            .iter_mut()
+            .for_each(|m_buff| m_buff.copy_from_slice(&[0.0; MAX_BLOCK_SIZE]));
+
         self.pre_filters.iter_mut().for_each(|x| x.reset());
     }
 
@@ -297,132 +299,178 @@ impl Plugin for NonlinearAdaa {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        for (_, block) in buffer.iter_blocks(MAX_BLOCK_SIZE as usize) {
-            for (block_channel, oversampler, filter, nl_processor, in_meter, out_meter, delay) in izip!(
-                block,
-                &mut self.oversamplers,
-                &mut self.pre_filters,
-                &mut self.non_linear_processors,
-                &mut self.input_meters,
-                &mut self.output_meters,
-                &mut self.dry_delay,
-            ) {
-                if !self.params.bypass.value() {
-                    if self.params.os_level.value() != oversampler.get_oversample_factor() {
-                        let new_factor = self.params.os_level.value();
-                        oversampler.set_oversample_factor(new_factor);
-                        delay.set_delay_len(oversampler.get_latency_samples());
-                    };
+        if !self.params.bypass.value() {
+            let current_os_factor = self.params.os_level.value();
 
-                    nih_dbg!(&self.params.os_level.value());
-                    nih_dbg!(&filter);
-
-                    let total_latency: u32 = oversampler.get_latency_samples() as u32;
-
-                    let p_state = State(
-                        self.params.nl_proc_type.value(),
-                        self.params.nl_proc_order.value(),
-                    );
-
-                    // if let State(_, AntiderivativeOrder::SecondOrder) = p_state {
-                    // total_latency += 1;
-                    // }
-
-                    context.set_latency_samples(total_latency);
-
-                    self.proc_state = p_state;
-                    nl_processor.compare_and_change_state(p_state);
-
-                    // pre filter and add dry to mix_scratch_buffer
-                    block_channel
-                        .iter_mut()
-                        .zip(self.mix_scratch_buffer.iter_mut())
-                        .for_each(|(s, d)| {
-                            let param_pre_filter_cutoff: &Smoother<f32> =
-                                &self.params.pre_filter_cutoff.smoothed;
-                            if param_pre_filter_cutoff.is_smoothing() {
-                                filter.set_cutoff(param_pre_filter_cutoff.next());
-                            };
-
-                            *d = *s;
-                            filter.process_sample(s);
-                        });
-
-                    // delay dry signal by total latency
-                    // might have to adjust how the delay changes sizes
-                    // i.e. might have to have it so that the start/finish is dynamic with the
-                    // size of the latency
-                    delay.delay(&mut self.mix_scratch_buffer);
-
-                    // upsample -- store upsampled signal contents in over_sample_process_buf
-                    oversampler.process_up(block_channel, &mut self.over_sample_process_buf);
-
-                    // to determine how many samples to process, given current oversample factor
-                    let samples_to_take = 2_u32.pow(oversampler.get_oversample_factor() as u32)
-                        as usize
-                        * MAX_BLOCK_SIZE;
-
-                    let mut in_amplitude = 0.0;
-                    let mut out_amplitude = 0.0;
-
-                    // nonlinear process oversampled signal
-                    self.over_sample_process_buf
-                        .iter_mut()
-                        .take(samples_to_take)
-                        .for_each(|sample| {
-                            let gain = self.params.gain.smoothed.next();
-                            let output = self.params.output.smoothed.next();
-
-                            *sample *= gain;
-                            in_amplitude += *sample;
-                            *sample = nl_processor.process(*sample);
-                            *sample *= output;
-                        });
-
-                    // down sample processed signal and store in block channel
-                    oversampler.process_down(&mut self.over_sample_process_buf, block_channel);
-
-                    // mix dry with wet
-                    block_channel
-                        .iter_mut()
-                        .zip(self.mix_scratch_buffer.iter())
-                        .for_each(|(w, d)| {
-                            let wet_amt = self.params.dry_wet.smoothed.next();
-
-                            *w = (wet_amt * *w) + ((1.0 - wet_amt) * d);
-
-                            out_amplitude += *w;
-                        });
-
-                    // display meter levels only if GUI is open
-                    if self.params.editor_state.is_open() {
-                        in_amplitude = (in_amplitude / samples_to_take as f32).abs();
-                        out_amplitude = (out_amplitude / block_channel.len() as f32).abs();
-
-                        let current_input_meter = in_meter.load(Ordering::Relaxed);
-                        let current_out_meter = out_meter.load(Ordering::Relaxed);
-
-                        let new_input_meter = if in_amplitude > current_input_meter {
-                            self.peak_meter_decay_scale_pos = 0;
-                            in_amplitude.clamp(0., 1.5)
-                        } else {
-                            current_input_meter * self.peak_meter_decay_weight
-                                + in_amplitude * (1.0 - self.peak_meter_decay_weight)
-                        };
-
-                        let new_output_meter = if out_amplitude > current_out_meter {
-                            out_amplitude.clamp(0., 1.5)
-                        } else {
-                            current_out_meter * (self.peak_meter_decay_weight)
-                                + out_amplitude * (1.0 - self.peak_meter_decay_weight)
-                        };
-
-                        in_meter.store(new_input_meter, Ordering::Relaxed);
-                        out_meter.store(new_output_meter, Ordering::Relaxed);
+            // check os factor paramater -- if different reset oversample stages and set dry delay
+            // amount
+            self.oversamplers
+                .iter_mut()
+                .zip(self.dry_delay.iter_mut())
+                .for_each(|(os, d)| {
+                    if current_os_factor != os.get_oversample_factor() {
+                        os.set_oversample_factor(current_os_factor);
+                        d.set_delay_len(os.get_latency_samples());
                     }
+                });
+
+            // determine current nonlinear state from user params
+            let p_state = State(
+                self.params.nl_proc_type.value(),
+                self.params.nl_proc_order.value(),
+            );
+
+            // change the nonlinear procressors if params are different
+            self.non_linear_processors.iter_mut().for_each(|nl| {
+                nl.compare_and_change_state(p_state);
+            });
+
+            // report latency of oversample FIR filters to DAW
+            context.set_latency_samples(self.oversamplers[0].get_latency_samples() as u32);
+
+            // to determine how many samples to process, given current oversample factor
+            let samples_to_take = 2_u32.pow(self.oversamplers[0].get_oversample_factor() as u32)
+                as usize
+                * buffer.samples();
+
+            let num_samples = buffer.samples();
+
+            let mut left_in_amplitude = 0.0;
+            let mut right_in_amplitude = 0.0;
+            let mut left_out_amplitude = 0.0;
+            let mut right_out_amplitude = 0.0;
+
+            for (_, block) in buffer.iter_blocks(MAX_BLOCK_SIZE) {
+                let mut block_channels = block.into_iter();
+                let left = block_channels.next().unwrap();
+                let right = block_channels.next().unwrap();
+
+                self.mix_scratch_buffer[0].copy_from_slice(left);
+                self.mix_scratch_buffer[1].copy_from_slice(right);
+
+                // prefilter processing
+                for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+                    let param_pre_filter_cutoff: &Smoother<f32> =
+                        &self.params.pre_filter_cutoff.smoothed;
+
+                    // recalculate every coefficient while smoothing
+                    if param_pre_filter_cutoff.is_smoothing() {
+                        let next_smoothed = param_pre_filter_cutoff.next();
+                        self.pre_filters.iter_mut().for_each(|f| {
+                            f.set_cutoff(next_smoothed);
+                        })
+                    }
+
+                    self.pre_filters[0].process_sample(l);
+                    self.pre_filters[1].process_sample(r);
+                }
+
+                // delay the dry signal by the latency amount introduced in oversampling FIR
+                // filtering
+                self.dry_delay
+                    .iter_mut()
+                    .zip(self.mix_scratch_buffer.iter_mut())
+                    .for_each(|(d, m)| d.delay(m));
+
+                let mut left_oversample_buff = self.over_sample_process_buf[0];
+                let mut right_oversample_buff = self.over_sample_process_buf[1];
+
+                self.oversamplers[0].process_up(left, &mut left_oversample_buff);
+                self.oversamplers[1].process_up(right, &mut right_oversample_buff);
+                // nonlinear process oversampled signal
+                left_oversample_buff
+                    .iter_mut()
+                    .take(samples_to_take)
+                    .zip(right_oversample_buff.iter_mut())
+                    .for_each(|(os_l, os_r)| {
+                        let gain = self.params.gain.smoothed.next();
+                        let output = self.params.output.smoothed.next();
+
+                        *os_l *= gain;
+                        *os_r *= gain;
+
+                        left_in_amplitude += *os_l;
+                        right_in_amplitude += *os_r;
+
+                        *os_l = self.non_linear_processors[0].process(*os_l);
+                        *os_r = self.non_linear_processors[1].process(*os_r);
+
+                        *os_l *= output;
+                        *os_r *= output;
+                    });
+
+                // down sample processed signal and store in block channel
+                self.oversamplers[0].process_down(&mut left_oversample_buff, left);
+                self.oversamplers[1].process_down(&mut right_oversample_buff, right);
+
+                for (l_wet, (l_dry, (r_wet, r_dry))) in left.iter_mut().zip(
+                    self.mix_scratch_buffer[0]
+                        .iter()
+                        .zip(right.iter_mut().zip(self.mix_scratch_buffer[1].iter())),
+                ) {
+                    let wet_amt = self.params.dry_wet.smoothed.next();
+                    let dry_amt = 1.0 - wet_amt;
+
+                    *l_wet = (wet_amt * *l_wet) + (dry_amt * l_dry);
+                    *r_wet = (wet_amt * *r_wet) + (dry_amt * r_dry);
+
+                    left_out_amplitude += *l_wet;
+                    right_out_amplitude += *r_wet;
                 }
             }
+
+            // display meter levels only if GUI is open
+            if self.params.editor_state.is_open() {
+                left_in_amplitude = (left_in_amplitude / samples_to_take as f32).abs();
+                right_in_amplitude = (right_in_amplitude / samples_to_take as f32).abs();
+                left_out_amplitude = (left_out_amplitude / num_samples as f32).abs();
+                right_out_amplitude = (right_out_amplitude / num_samples as f32).abs();
+
+                let before_left_input_meter = self.input_meters[0].load(Ordering::Relaxed);
+                let before_right_input_meter = self.input_meters[1].load(Ordering::Relaxed);
+                let before_left_out_meter = self.output_meters[0].load(Ordering::Relaxed);
+                let before_right_out_meter = self.output_meters[1].load(Ordering::Relaxed);
+
+                let new_left_input_meter = if left_in_amplitude > before_left_input_meter {
+                    left_in_amplitude.clamp(0., 10.0)
+                } else {
+                    before_left_input_meter * self.peak_meter_decay_weight
+                        + left_in_amplitude * (1.0 - self.peak_meter_decay_weight)
+                };
+
+                let new_right_input_meter = if right_in_amplitude > before_right_input_meter {
+                    right_in_amplitude.clamp(0., 10.0)
+                } else {
+                    before_right_input_meter * self.peak_meter_decay_weight
+                        + right_in_amplitude * (1.0 - self.peak_meter_decay_weight)
+                };
+
+                let new_left_out_meter = if left_out_amplitude > before_left_out_meter {
+                    left_out_amplitude.clamp(0., 10.0)
+                } else {
+                    before_left_out_meter * (self.peak_meter_decay_weight)
+                        + left_out_amplitude * (1.0 - self.peak_meter_decay_weight)
+                };
+
+                let new_right_out_meter = if right_out_amplitude > before_right_out_meter {
+                    right_out_amplitude.clamp(0., 10.0)
+                } else {
+                    before_right_out_meter * (self.peak_meter_decay_weight)
+                        + right_out_amplitude * (1.0 - self.peak_meter_decay_weight)
+                };
+
+                self.input_meters[0].store(new_left_input_meter, Ordering::Relaxed);
+                self.input_meters[1].store(new_right_input_meter, Ordering::Relaxed);
+                self.output_meters[0].store(new_left_out_meter, Ordering::Relaxed);
+                self.output_meters[1].store(new_right_out_meter, Ordering::Relaxed);
+            } else {
+                self.input_meters[0].store(0.0, Ordering::Relaxed);
+                self.input_meters[1].store(0.0, Ordering::Relaxed);
+                self.output_meters[0].store(0.0, Ordering::Relaxed);
+                self.output_meters[1].store(0.0, Ordering::Relaxed);
+            }
         }
+
         ProcessStatus::Normal
     }
 }
