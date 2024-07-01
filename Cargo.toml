@@ -5,7 +5,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["James Squires <squires.jr@gmail.com>"]
 license = "GPL-3.0-or-later"
-homepage = "https://youtu.be/dQw4w9WgXcQ"
+# homepage = "https://youtu.be/dQw4w9WgXcQ"
 description = "Nonlinear processor"
 
 [workspace]
@@ -19,18 +19,12 @@ crate-type = ["cdylib", "lib"]
 # thread in debug builds.
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }
 jdsp = { path = "../jdsp/jdsp", features = ["all"]}
-# ndarray = "0.15.6"
-# ndarray-rand = "0.14.0"
 num-traits = "0.2.14"
-# blas-src = { version = "0.8", features = ["accelerate"] }
 nih_plug_vizia = { git = "https://github.com/robbert-vdh/nih-plug.git" } 
 serde = "1.0.200"
 serde_json = "1.0"
 itertools = "0.12.1"
 vizia = "0.1.0"
-
-# atomic_float = "0.1"
-# openblas-src = { version = "0.10", features = ["cblas", "system"]}
 
 # Uncomment the below line to disable the on-by-default VST3 feature to remove
 # the GPL compatibility requirement
@@ -39,7 +33,7 @@ vizia = "0.1.0"
 [profile.release]
 lto = "fat"
 strip = "symbols"
-codegen-units = 4
+codegen-units = 8
 
 [profile.profiling]
 inherits = "release"
