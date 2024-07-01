@@ -1,3 +1,4 @@
+/*
 use nih_plug::prelude::Param;
 use vizia::prelude::*;
 
@@ -618,3 +619,4 @@ impl ParamSliderExt for Handle<'_, ParamSlider> {
         })
     }
 }
+*/

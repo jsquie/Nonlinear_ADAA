@@ -150,10 +150,10 @@ impl NonlinearAdaaParams {
 
             pre_filter_cutoff: FloatParam::new(
                 "Prefilter Cutoff Frequency",
-                20000.0,
+                22049.0,
                 FloatRange::Skewed {
-                    min: 100.,
-                    max: 22000.0,
+                    min: 50.,
+                    max: 22049.0,
                     factor: FloatRange::skew_factor(-1.0),
                 },
             )
@@ -166,6 +166,7 @@ impl NonlinearAdaaParams {
     }
 }
 
+#[inline]
 fn oversampling_factor_to_times(factor: OversampleFactor) -> f32 {
     match factor {
         OversampleFactor::TwoTimes => 2.0,
@@ -308,9 +309,13 @@ impl Plugin for NonlinearAdaa {
             ) {
                 if !self.params.bypass.value() {
                     if self.params.os_level.value() != oversampler.get_oversample_factor() {
-                        oversampler.set_oversample_factor(self.params.os_level.value());
+                        let new_factor = self.params.os_level.value();
+                        oversampler.set_oversample_factor(new_factor);
                         delay.set_delay_len(oversampler.get_latency_samples());
                     };
+
+                    nih_dbg!(&self.params.os_level.value());
+                    nih_dbg!(&filter);
 
                     let total_latency: u32 = oversampler.get_latency_samples() as u32;
 
