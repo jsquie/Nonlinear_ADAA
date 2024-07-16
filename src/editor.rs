@@ -24,6 +24,11 @@ pub(crate) fn default_state() -> Arc<ViziaState> {
     ViziaState::new(|| (430, 600))
 }
 
+#[derive(Debug)]
+enum SimpleEvent {
+    GainChanged(f32),
+}
+
 pub(crate) fn create(
     params: Arc<NonlinearAdaaParams>,
     input_meters: [Arc<AtomicF32>; 2],
@@ -34,8 +39,6 @@ pub(crate) fn create(
         assets::register_noto_sans_light(cx);
         assets::register_noto_sans_thin(cx);
         assets::register_noto_sans_bold(cx);
-
-        // let _ = cx.add_stylesheet(STYLE);
 
         Data {
             params: params.clone(),

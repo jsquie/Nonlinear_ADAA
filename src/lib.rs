@@ -13,7 +13,7 @@ mod editor;
 
 const MAX_BLOCK_SIZE: usize = 32;
 const MAX_OS_FACTOR_SCALE: usize = 16;
-const PEAK_METER_DECAY_MS: f64 = 150.0;
+const PEAK_METER_DECAY_MS: f64 = 15.0;
 const PEAK_DECAY_FACTOR: f64 = 0.05;
 
 pub struct NonlinearAdaa {
@@ -146,10 +146,10 @@ impl NonlinearAdaaParams {
 
             pre_filter_cutoff: FloatParam::new(
                 "Prefilter Cutoff Frequency",
-                22049.0,
+                20000.0,
                 FloatRange::Skewed {
                     min: 50.,
-                    max: 22049.0,
+                    max: 22050.0 * 0.99,
                     factor: FloatRange::skew_factor(-1.0),
                 },
             )
@@ -234,11 +234,7 @@ impl Plugin for NonlinearAdaa {
             .get() as usize;
 
         self.pre_filters.iter_mut().for_each(|filter| {
-            filter.init(
-                &buffer_config.sample_rate,
-                &self.params.pre_filter_cutoff.value(),
-                FilterOrder::First,
-            )
+            filter.init(&buffer_config.sample_rate, &20000.0, FilterOrder::First);
         });
 
         let new_state = State(
@@ -328,25 +324,25 @@ impl Plugin for NonlinearAdaa {
             // report latency of oversample FIR filters to DAW
             context.set_latency_samples(self.oversamplers[0].get_latency_samples() as u32);
 
-            // to determine how many samples to process, given current oversample factor
-            let samples_to_take = 2_u32.pow(self.oversamplers[0].get_oversample_factor() as u32)
-                as usize
-                * buffer.samples();
-
-            let num_samples = buffer.samples();
-
-            let mut left_in_amplitude = 0.0;
-            let mut right_in_amplitude = 0.0;
-            let mut left_out_amplitude = 0.0;
-            let mut right_out_amplitude = 0.0;
-
             for (_, block) in buffer.iter_blocks(MAX_BLOCK_SIZE) {
+                let mut left_in_amplitude = 0.0;
+                let mut right_in_amplitude = 0.0;
+                let mut left_out_amplitude = 0.0;
+                let mut right_out_amplitude = 0.0;
+
                 let mut block_channels = block.into_iter();
                 let left = block_channels.next().unwrap();
                 let right = block_channels.next().unwrap();
 
-                self.mix_scratch_buffer[0].copy_from_slice(left);
-                self.mix_scratch_buffer[1].copy_from_slice(right);
+                let num_samples = left.len();
+
+                // to determine how many samples to process, given current oversample factor
+                let samples_to_take = 2_u32.pow(self.oversamplers[0].get_oversample_factor() as u32)
+                    as usize
+                    * num_samples;
+
+                self.mix_scratch_buffer[0][..num_samples].copy_from_slice(left);
+                self.mix_scratch_buffer[1][..num_samples].copy_from_slice(right);
 
                 // prefilter processing
                 for (l, r) in left.iter_mut().zip(right.iter_mut()) {
@@ -361,6 +357,10 @@ impl Plugin for NonlinearAdaa {
                         })
                     }
 
+                    nih_dbg!(param_pre_filter_cutoff);
+                    nih_dbg!(self.pre_filters[0].get_current_cutoff());
+                    nih_dbg!(self.pre_filters[1].get_current_cutoff());
+
                     self.pre_filters[0].process_sample(l);
                     self.pre_filters[1].process_sample(r);
                 }
@@ -369,7 +369,7 @@ impl Plugin for NonlinearAdaa {
                 // filtering
                 self.dry_delay
                     .iter_mut()
-                    .zip(self.mix_scratch_buffer.iter_mut())
+                    .zip(self.mix_scratch_buffer.iter_mut().take(num_samples))
                     .for_each(|(d, m)| d.delay(m));
 
                 let mut left_oversample_buff = self.over_sample_process_buf[0];
@@ -389,8 +389,8 @@ impl Plugin for NonlinearAdaa {
                         *os_l *= gain;
                         *os_r *= gain;
 
-                        left_in_amplitude += *os_l;
-                        right_in_amplitude += *os_r;
+                        left_in_amplitude += (*os_l).abs();
+                        right_in_amplitude += (*os_r).abs();
 
                         *os_l = self.non_linear_processors[0].process(*os_l);
                         *os_r = self.non_linear_processors[1].process(*os_r);
@@ -414,56 +414,58 @@ impl Plugin for NonlinearAdaa {
                     *l_wet = (wet_amt * *l_wet) + (dry_amt * l_dry);
                     *r_wet = (wet_amt * *r_wet) + (dry_amt * r_dry);
 
-                    left_out_amplitude += *l_wet;
-                    right_out_amplitude += *r_wet;
+                    left_out_amplitude += (*l_wet).abs();
+                    right_out_amplitude += (*r_wet).abs();
+                }
+
+                // display meter levels only if GUI is open
+                if self.params.editor_state.is_open() {
+                    left_in_amplitude = left_in_amplitude / samples_to_take as f32;
+                    right_in_amplitude = right_in_amplitude / samples_to_take as f32;
+                    left_out_amplitude = left_out_amplitude / num_samples as f32;
+                    right_out_amplitude = right_out_amplitude / num_samples as f32;
+
+                    let before_left_input_meter = self.input_meters[0].load(Ordering::Relaxed);
+                    let before_right_input_meter = self.input_meters[1].load(Ordering::Relaxed);
+                    let before_left_out_meter = self.output_meters[0].load(Ordering::Relaxed);
+                    let before_right_out_meter = self.output_meters[1].load(Ordering::Relaxed);
+
+                    let new_left_input_meter = if left_in_amplitude > before_left_input_meter {
+                        left_in_amplitude.clamp(0., 10.0)
+                    } else {
+                        before_left_input_meter * self.peak_meter_decay_weight
+                            + left_in_amplitude * (1.0 - self.peak_meter_decay_weight)
+                    };
+
+                    let new_right_input_meter = if right_in_amplitude > before_right_input_meter {
+                        right_in_amplitude.clamp(0., 10.0)
+                    } else {
+                        before_right_input_meter * self.peak_meter_decay_weight
+                            + right_in_amplitude * (1.0 - self.peak_meter_decay_weight)
+                    };
+
+                    let new_left_out_meter = if left_out_amplitude > before_left_out_meter {
+                        left_out_amplitude.clamp(0., 10.0)
+                    } else {
+                        before_left_out_meter * (self.peak_meter_decay_weight)
+                            + left_out_amplitude * (1.0 - self.peak_meter_decay_weight)
+                    };
+
+                    let new_right_out_meter = if right_out_amplitude > before_right_out_meter {
+                        right_out_amplitude.clamp(0., 10.0)
+                    } else {
+                        before_right_out_meter * (self.peak_meter_decay_weight)
+                            + right_out_amplitude * (1.0 - self.peak_meter_decay_weight)
+                    };
+
+                    self.input_meters[0].store(new_left_input_meter, Ordering::Relaxed);
+                    self.input_meters[1].store(new_right_input_meter, Ordering::Relaxed);
+                    self.output_meters[0].store(new_left_out_meter, Ordering::Relaxed);
+                    self.output_meters[1].store(new_right_out_meter, Ordering::Relaxed);
                 }
             }
 
-            // display meter levels only if GUI is open
-            if self.params.editor_state.is_open() {
-                left_in_amplitude = (left_in_amplitude / samples_to_take as f32).abs();
-                right_in_amplitude = (right_in_amplitude / samples_to_take as f32).abs();
-                left_out_amplitude = (left_out_amplitude / num_samples as f32).abs();
-                right_out_amplitude = (right_out_amplitude / num_samples as f32).abs();
-
-                let before_left_input_meter = self.input_meters[0].load(Ordering::Relaxed);
-                let before_right_input_meter = self.input_meters[1].load(Ordering::Relaxed);
-                let before_left_out_meter = self.output_meters[0].load(Ordering::Relaxed);
-                let before_right_out_meter = self.output_meters[1].load(Ordering::Relaxed);
-
-                let new_left_input_meter = if left_in_amplitude > before_left_input_meter {
-                    left_in_amplitude.clamp(0., 10.0)
-                } else {
-                    before_left_input_meter * self.peak_meter_decay_weight
-                        + left_in_amplitude * (1.0 - self.peak_meter_decay_weight)
-                };
-
-                let new_right_input_meter = if right_in_amplitude > before_right_input_meter {
-                    right_in_amplitude.clamp(0., 10.0)
-                } else {
-                    before_right_input_meter * self.peak_meter_decay_weight
-                        + right_in_amplitude * (1.0 - self.peak_meter_decay_weight)
-                };
-
-                let new_left_out_meter = if left_out_amplitude > before_left_out_meter {
-                    left_out_amplitude.clamp(0., 10.0)
-                } else {
-                    before_left_out_meter * (self.peak_meter_decay_weight)
-                        + left_out_amplitude * (1.0 - self.peak_meter_decay_weight)
-                };
-
-                let new_right_out_meter = if right_out_amplitude > before_right_out_meter {
-                    right_out_amplitude.clamp(0., 10.0)
-                } else {
-                    before_right_out_meter * (self.peak_meter_decay_weight)
-                        + right_out_amplitude * (1.0 - self.peak_meter_decay_weight)
-                };
-
-                self.input_meters[0].store(new_left_input_meter, Ordering::Relaxed);
-                self.input_meters[1].store(new_right_input_meter, Ordering::Relaxed);
-                self.output_meters[0].store(new_left_out_meter, Ordering::Relaxed);
-                self.output_meters[1].store(new_right_out_meter, Ordering::Relaxed);
-            } else {
+            if !self.params.editor_state.is_open() {
                 self.input_meters[0].store(0.0, Ordering::Relaxed);
                 self.input_meters[1].store(0.0, Ordering::Relaxed);
                 self.output_meters[0].store(0.0, Ordering::Relaxed);
